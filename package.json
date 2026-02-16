@@ -1,0 +1,30 @@
+{
+  "name": "wosland-bot",
+  "version": "1.0.0",
+  "description": "whiteout survival discord bot",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node --expose-gc --max-old-space-size=256 starter.js",
+    "start:basic": "node starter.js",
+    "dev": "node --expose-gc --max-old-space-size=256 starter.js"
+  },
+  "dependencies": {
+    "7zip-bin": "^5.2.0",
+    "ascii85": "^1.0.2",
+    "better-sqlite3": "^9.2.2",
+    "discord.js": "^14.25.1",
+    "dotenv": "^16.3.1",
+    "googleapis": "^134.0.0",
+    "node-7z": "^3.0.0",
+    "node-cron": "^3.0.3",
+    "node-fetch": "^2.7.0",
+    "onnxruntime-node": "^1.23.2",
+    "sharp": "^0.32.0"
+  },
+  "keywords": [
+    "discord",
+    "bot"
+  ],
+  "author": "bahraini",
+  "license": "MIT"
+}

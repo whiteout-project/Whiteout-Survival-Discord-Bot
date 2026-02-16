@@ -1,0 +1,2422 @@
+{
+	"panel": {
+		"mainPage": {
+			"content": {
+				"title": "### {emoji.1024} Control Panel",
+				"description": "Welcome to the control panel. Use the buttons below to interact with the bot.",
+				"allianceField": {
+					"name": "- **Alliances**",
+					"value": "  - Manage your alliances"
+				},
+				"playersField": {
+					"name": "- **Players**",
+					"value": "  - Manage and add members to your alliance"
+				},
+				"giftCodesField": {
+					"name": "- **Gift Codes**",
+					"value": "  - Manage gift codes for alliance members"
+				},
+				"notificationField": {
+					"name": "- **Notifications**",
+					"value": "  - Set up notifications for alliance events or even for yourself"
+				},
+				"settingsField": {
+					"name": "- **Settings**",
+					"value": "  - Access the bot settings"
+				}
+			},
+			"buttons": {
+				"alliance": "Alliances",
+				"players": "Players",
+				"giftCode": "Gift Codes",
+				"notification": "Notifications",
+				"support": "Support",
+				"settings": "Settings",
+				"backToPanel": "Back"
+			},
+			"errors": {}
+		}
+	},
+	"alliance": {
+		"mainPage": {
+			"content": {
+				"title": "### {emoji.1001} Alliances",
+				"description": "create and manage your alliances",
+				"createAllianceField": {
+					"name": "- **Create Alliance**",
+					"value": "  - Create a new alliance to add members"
+				},
+				"editAllianceField": {
+					"name": "- **Edit Alliance**",
+					"value": "  - Edit alliance settings"
+				},
+				"deleteAllianceField": {
+					"name": "- **Delete Alliance**",
+					"value": "  - Delete the alliance and all its members"
+				},
+				"viewAlliancesField": {
+					"name": "- **View Alliances**",
+					"value": "  - View all alliances with details"
+				},
+				"editPriorityField": {
+					"name": "- **Edit Priority**",
+					"value": "  - Manage alliance priority order"
+				}
+			},
+			"buttons": {
+				"createAlliance": "Create Alliance",
+				"editAlliance": "Edit Alliance",
+				"deleteAlliance": "Delete Alliance",
+				"viewAlliances": "View Alliances",
+				"editPriority": "Edit Priority",
+				"assignAlliance": "Assign Alliance",
+				"manualRefresh": "Manual Refresh"
+			},
+			"errors": {}
+		},
+		"createAlliance": {
+			"content": {
+				"title": "### {emoji.1021} Alliance Created",
+				"description": "**{allianceName}** has been created successfully!\nPlease select a channel where alliance related activities will be sent.\n",
+				"allianceDetailsField": {
+					"name": "- **Alliance Details**",
+					"value": {
+						"step1": "  - **Alliance Name:** {allianceName}\n  - **Priority:** {priority}\n  - **Refresh Rate:** {refreshRate}",
+						"step2": "  - **Alliance Name:** {allianceName}\n  - **Priority:** {priority}\n  - **Refresh Rate:** {refreshRate}\n  - **Channel:** {channel}"
+					}
+				},
+				"warningField": {
+					"name": "- **Warning**",
+					"value": "  - Refresh rates less than 30 minutes are not recommended and may cause performance issues."
+				},
+				"disabled": "Disabled",
+				"minutes": "{min} minutes",
+				"dailyAt": "Daily at {time} UTC"
+			},
+			"buttons": {
+				"submit": "Create Alliance",
+				"cancel": "Cancel"
+			},
+			"modal": {
+				"title": "Create Alliance",
+				"allianceField": {
+					"label": "Alliance Name",
+					"placeholder": "Enter alliance name"
+				},
+				"refreshRateField": {
+					"label": "Refresh Rate",
+					"description": "How often alliance players info refreshes. Use @HH:MM for daily refresh UTC time (e.g., @14:30).",
+					"placeholder": "0 to disable refresh, +30 minutes recommended"
+				}
+			},
+			"selectMenu": {
+				"channelSelect": {
+					"placeholder": "Select a channel for this alliance"
+				}
+			},
+			"errors": {
+				"invalidRefreshRate": "{emoji.1050} Refresh rate must be a valid number (0 or greater).",
+				"invalidSelection": "{emoji.1050} Invalid channel selection. Please try again.",
+				"allianceNotFound": "{emoji.1050} Alliance not found. Please create an alliance first.",
+				"wrongTimeFormat": "{emoji.1050} Time must be in HH:MM format",
+				"wrongHourRange": "{emoji.1050} Hour must be between 0 and 23",
+				"wrongMinuteRange": "{emoji.1050} Minute must be between 0 and 59",
+				"wrongValue": "{emoji.1050} Interval must be a positive number or time format (@HH:MM)"
+			}
+		},
+		"editAlliance": {
+			"content": {
+				"title": {
+					"base": "### {emoji.1008} Edit Alliance",
+					"updated": "### {emoji.1004} Alliance Updated"
+				},
+				"description": "Alliance information has been updated successfully.",
+				"allianceInfoField": {
+					"name": "- **Updated Information**",
+					"value": "  - **Name:** {name}\n  - **Refresh Rate:** {refreshRate}\n  - **Channel:** {channel}\n  - **Priority:** {priority}"
+				},
+				"warningField": {
+					"name": "- **Warning**",
+					"value": "  - Refresh rates less than 30 minutes are not recommended and may cause performance issues."
+				},
+				"footer": "-# Select a channel for this alliance if you want to change it. If not, ignore this step.",
+				"disabled": "Disabled",
+				"minutes": "minutes"
+			},
+			"modal": {
+				"title": "Edit Alliance",
+				"allianceName": {
+					"label": "Alliance Name",
+					"placeholder": "Enter new alliance name"
+				},
+				"refreshRate": {
+					"label": "Refresh Rate (Minutes)",
+					"description": "How often alliance players info refreshes. Use @HH:MM for daily refresh UTC time (e.g., @14:30).",
+					"placeholder": "0 to disable refresh, +30 minutes recommended"
+				}
+			},
+			"selectMenu": {
+				"selectAlliance": {
+					"placeholder": "Select an alliance to edit",
+					"description": "Priority {alliancePriority} | Players: {playerCount}"
+				},
+				"selectChannel": {
+					"placeholder": "Select a channel for this alliance"
+				}
+			},
+			"errors": {
+				"invalidRefreshRate": "{emoji.1050} Refresh rate must be a valid number (0 or greater).",
+				"noAssignedAlliances": "{emoji.1050} You are not assigned to any alliances.",
+				"noAlliances": "{emoji.1050} No alliances found. Please create an alliance first."
+			}
+		},
+		"deleteAlliance": {
+			"content": {
+				"title": {
+					"base": "### {emoji.1046} Delete Alliance",
+					"confirm": "### {emoji.1050} Confirm Alliance Deletion",
+					"request": "### {emoji.1021} Alliance Deletion Requested",
+					"approvalNeeded": "### {emoji.1022} Alliance Deletion Approval Needed",
+					"approval": "### {emoji.1004} Alliance Deletion Approved",
+					"success": "### {emoji.1004} Alliance Deleted Successfully",
+					"denial": "### {emoji.1051} Alliance Deletion Denied",
+					"cancel": "### {emoji.1051} Alliance Deletion Canceled"
+				},
+				"description": {
+					"request": "A deletion request has been submitted and requires approval from an owner or full-access administrator.",
+					"approval": "The deletion request has been approved. The alliance and all its associated players have been deleted.",
+					"denial": "The deletion request has been denied. The alliance remains intact.",
+					"cancel": "The deletion request has been canceled. The alliance remains intact."
+				},
+				"warningField": {
+					"name": "- **Deletion Warning**",
+					"value": "  - Deleting an alliance will:\n    - Remove the alliance permanently\n    - Delete all players assigned to this alliance\n    - Remove all associated data\n    - This action cannot be undone"
+				},
+				"allianceToDeleteField": {
+					"name": "- **Alliance to Delete**",
+					"value": {
+						"confirming": "  - **Name:** {allianceName}\n  - **Priority:** {priority}\n  - **Players:** {players}",
+						"approved": "  - **Name:** {allianceName}\n  - **Priority:** {priority}\n  - **Players:** {players}\n  - **Deleted By:** {deletedBy}\n  - **Approved By:** {approvedBy}",
+						"denied": "  - **Name:** {allianceName}\n  - **Priority:** {priority}\n  - **Players:** {players}\n  - **Denied By:** {deniedBy}",
+						"base": "  - **Name:** {allianceName}\n  - **Priority:** {priority}\n  - **Players:** {players}\n  - **Deleted By:** {deletedBy}\n  - **Approved By:** {approvedBy}\n  - **Denied By:** {deniedBy}"
+					}
+				},
+				"requestedByField": {
+					"name": "- **Requested By**",
+					"value": "  - ({requester})"
+				},
+				"notSet": "Not Set",
+				"noApproval": "No approval required"
+			},
+			"buttons": {
+				"confirmDelete": "Confirm Deletion",
+				"cancelDelete": "Cancel Deletion",
+				"approveRequest": "Approve Deletion",
+				"denyRequest": "Deny Deletion"
+			},
+			"selectMenu": {
+				"selectAlliance": {
+					"placeholder": "Select an alliance to delete",
+					"description": "Priority {alliancePriority} | Players: {playerCount}"
+				}
+			},
+			"errors": {
+				"allianceNotFound": "{emoji.1050} Alliance not found. Please create an alliance first.",
+				"noAssignedAlliances": "{emoji.1050} You are not assigned to any alliances."
+			}
+		},
+		"assignAlliance": {
+			"content": {
+				"title": {
+					"base": "### {emoji.1020} Assign Alliances to Admin",
+					"allianceSelection": "### {emoji.1020} Select Alliances to",
+					"assigned": "### {emoji.1004} Alliance Assignment Updated"
+				},
+				"description": {
+					"base": "Select an admin to assign or remove alliances. Admins can only access their assigned alliances.",
+					"allianceSelection": "Select alliances to assign or remove for admin: **{admin}**",
+					"assigned": "alliances assign or remove for admin: **{admin}**"
+				},
+				"currentlyAssignedField": {
+					"name": "- Currently Assigned Alliances",
+					"value": "  - None"
+				},
+				"addedField": {
+					"name": "- Added",
+					"value": "  - {name}"
+				},
+				"removedField": {
+					"name": "- Removed",
+					"value": "  - {name}"
+				}
+			},
+			"selectMenu": {
+				"selectAdmin": {
+					"placeholder": "Select an admin to assign alliances",
+					"description": "{count} alliance(s) assigned"
+				},
+				"selectAlliances": {
+					"placeholder": "Select alliances to assign/remove to the admin",
+					"description": {
+						"add": "Priority: {alliancePriority} - Currently assigned (select to remove)",
+						"remove": "Priority: {alliancePriority} - Not assigned (select to assign)"
+					}
+				}
+			},
+			"errors": {
+				"noEligible": "{emoji.1050} No eligible admins found. Only non-owner admins without full access can be assigned to alliances.",
+				"adminNotFound": "{emoji.1050} Selected user is not an admin.",
+				"noAlliances": "{emoji.1050} No alliances found. Please create an alliance first.",
+				"noValidAlliances": "{emoji.1050} No valid alliances selected."
+			}
+		},
+		"editPriority": {
+			"content": {
+				"title": {
+					"base": "### {emoji.1028} Select Alliance to Edit Priority",
+					"edit": "### {emoji.1028} Edit Priority for {allianceName}",
+					"updated": "### {emoji.1004} Priority Updated"
+				},
+				"description": {
+					"base": "Choose an alliance to change its priority position. Higher priority alliances are processed first.",
+					"edit": "Change the priority position for this alliance. Lower numbers have higher priority."
+				},
+				"currentPriorityField": {
+					"name": "- **Current Priority**",
+					"value": "  - **Priority:** {priority}\n  - **Total Alliances:** {totalAlliances}"
+				},
+				"priorityContextField": {
+					"name": "- **Priority Context**",
+					"value": "  - No other alliances found"
+				},
+				"priorityUpdated": "Priority updated for **{allianceName}** from **{oldPriority}** to **{newPriority}**"
+			},
+			"buttons": {
+				"highest": "Set Highest",
+				"custom": "Set Custom",
+				"lowest": "Set Lowest",
+				"backToSelect": "Back to Selection"
+			},
+			"modal": {
+				"title": "Set Custom Priority",
+				"priorityLabel": {
+					"label": "Priority Number",
+					"description": "The priority number you will set for this alliance will push other alliances accordingly.",
+					"placeholder": "Enter priority (1 to {maxPriority})"
+				}
+			},
+			"selectMenu": {
+				"selectAlliance": {
+					"placeholder": "Select an alliance to adjust its priority",
+					"description": "Priority {priority} | Players: {playerCount}"
+				}
+			},
+			"errors": {
+				"noAlliances": "{emoji.1050} No alliances found. Please create an alliance first.",
+				"notEnoughAlliances": "{emoji.1050} At least two alliances are required to edit priority.",
+				"invalidPriority": "{emoji.1050} Priority must be a valid number between 1 and the total number of alliances."
+			}
+		},
+		"refreshAlliance": {
+			"content": {
+				"title": {
+					"base": "### {emoji.1033} Manual Alliance Refresh",
+					"results": "### {emoji.1041} Refresh Results"
+				},
+				"description": "Select one or more alliances to trigger a manual refresh.",
+				"allianceSuccess": "Alliance **{allianceName}**: {playerCount} players queued for refresh, any changes will be posted in the alliance channel.",
+				"autoRefreshStopped": "Stopped {cancelledCount} auto-refresh process(es) for alliance {allianceId} to allow manual refresh"
+			},
+			"selectMenu": {
+				"selectAlliance": {
+					"placeholder": "Select alliance(s) to refresh",
+					"description": "Priority {priority} | Players: {playerCount}"
+				}
+			},
+			"errors": {
+				"noAlliances": "{emoji.1050} No alliances with players found.",
+				"noValidAlliances": "{emoji.1050} No valid alliances available for refresh.",
+				"allianceNotFound": "{emoji.1050} Alliance {allianceId} not found.",
+				"allianceHasNoPlayers": "{emoji.1050} Alliance {allianceId} has no players to refresh.",
+				"allianceError": "{emoji.1050} Error processing alliance {allianceId}: {errorMessage}"
+			}
+		},
+		"viewAlliances": {
+			"content": {
+				"title": "### {emoji.1021}️ View Alliances",
+				"description": "Select an alliance from the dropdown menu below to view its details.",
+				"allianceDetailsField": {
+					"name": "- **{allianceName}**",
+					"value": "  - Priority: {priority}\n  - Players: {playerCount}\n  - Refresh rate: {refreshRate}\n  - Channel: {channel}\n  - Created By: {createdBy}"
+				},
+				"channelNotFound": "Channel not found",
+				"noPlayers": "No players in this alliance.",
+				"disabled": "Disabled",
+				"minutes": "minutes"
+			},
+			"selectMenu": {
+				"selectAlliance": {
+					"placeholder": "Select an alliance to view details",
+					"description": "Priority: {priority} | Players: {playerCount}"
+				}
+			},
+			"errors": {
+				"noAlliances": "{emoji.1050} No alliances found. Please create an alliances first."
+			}
+		}
+	},
+	"players": {
+		"mainPage": {
+			"content": {
+				"title": "### {emoji.1026} Players",
+				"description": "Manage players in your alliance",
+				"addPlayersField": {
+					"name": "- **Add Players**",
+					"value": "  - Add players to your alliance"
+				},
+				"movePlayersField": {
+					"name": "- **Move Players**",
+					"value": "  - Move players between alliances"
+				},
+				"viewPlayersField": {
+					"name": "- **View Players**",
+					"value": "  - View all players in your alliance"
+				},
+				"removePlayersField": {
+					"name": "- **Remove Players**",
+					"value": "  - Remove players from your alliance"
+				},
+				"editPlayersField": {
+					"name": "- **Edit Players**",
+					"value": "  - Edit player information"
+				}
+			},
+			"buttons": {
+				"addPlayer": "Add Players",
+				"movePlayers": "Move Players",
+				"removePlayers": "Remove Players",
+				"export": "Export Players",
+				"idChannel": "ID Channel"
+			},
+			"errors": {}
+		},
+		"addPlayer": {
+			"content": {
+				"title": {
+					"base": "### {emoji.1001} Select Alliance",
+					"addPlayerAlliance": "### {emoji.1026} Add Player to {Alliance}",
+					"addPlayerProcess": "Add Player Process Created",
+					"allExist": "{emoji.1017} All Players Already Exist",
+					"results": "{emoji.1041} Player Processing Results"
+				},
+				"description": {
+					"base": "Choose an alliance from the dropdown menu below to add a player.",
+					"enterID": "Enter the game user ID of the player you want to add to the alliance.",
+					"allExist": "All the players you tried to add already exist in the database.",
+					"results": "Results for alliance: **{alliance}**"
+				},
+				"instructionField": {
+					"name": "- **Input Format**",
+					"value": " -  Single ID: `123456789`\n - Multiple IDs: `123456789,987654321,555444333`"
+				},
+				"status": {
+					"queued": "The process has been queued for execution.",
+					"active": "The process is now active and will be executed shortly.",
+					"completed": "The process has been completed successfully.",
+					"processing": "Processing player data...",
+					"recovering": "Recovering process - Found {alreadyAdded} players already existing.",
+					"rateLimit": "Rate limit reached, pausing processing for 60 seconds...",
+					"progressUpdate": "Processing players ({processed}/{total})"
+				},
+				"processDetailsField": {
+					"name": "Process Details",
+					"value": "- **process ID:** {processId}\n- **Alliance:** {alliance}\n- **Player Count:** {playerCount}\n- **Status:** {status}"
+				},
+				"progressField": {
+					"name": "Progress",
+					"value": "progress bar is hardcoded :)"
+				},
+				"alreadyExistField": {
+					"name": "Already Existing Players",
+					"value": "- **nickname**: {nickname}\n  - ID: {id}\n  - furnace: {furnace}\n  - state: {state}"
+				},
+				"statisticsField": {
+					"name": "Statistics",
+					"value": "- Added: {added}\n- Already Exisit: {alreadyExist}\n- Failed: {failed}"
+				},
+				"addedField": {
+					"name": "Added Players",
+					"value": "- **nickname**: {nickname}\n  - ID: {id}\n  - furnace: {furnace}\n  - state: {state}"
+				},
+				"failedField": {
+					"name": "- **Failed to Add**",
+					"value": "  - ID: {id}"
+				},
+				"skippedExistingField": {
+					"name": "Skipped Existing Players {count}",
+					"value": "- **{nickname}** (ID: {id})  - {alliance}"
+				},
+				"moreThanTen": "\n\n*...and {count} more*",
+				"processStarted": "Process started! Progress updates will be shown in {channelMention}",
+				"currentChannel": "the current channel"
+			},
+			"buttons": {
+				"inputPlayerId": "Enter Player IDs",
+				"viewFailedPlayers": "View Failed Players"
+			},
+			"modal": {
+				"title": "Add Players",
+				"playerIdInput": {
+					"label": "Player IDs",
+					"placeholder": "Enter player IDs (e.g., 123456789,987654321)"
+				}
+			},
+			"selectMenu": {
+				"selectAlliance": {
+					"placeholder": "Select an alliance to add players to"
+				}
+			},
+			"error": {
+				"noAssignedAlliances": "{emoji.1050} You are not assigned to any alliances.",
+				"noAvailableAlliances": "{emoji.1050} No alliances available to add players.",
+				"invalidPlayerIds": "{emoji.1050} Invalid player IDs. Please enter only numeric IDs separated by commas."
+			}
+		},
+		"idChannel": {
+			"content": {
+				"title": {
+					"base": "### ID Channel",
+					"selectAlliance": "### Select Alliance",
+					"channelID": "### Select Channel",
+					"remove": "### Remove Channel",
+					"removeSuccess": "### Channel Removed",
+					"allExist": "All Players Already Exist",
+					"success": "### Channel Linked"
+				},
+				"description": {
+					"base": "Choose an action for ID channels:",
+					"selectAlliance": "Choose which alliance to link the ID channel to.",
+					"channelID": "Choose a channel where users can submit player IDs for alliance: **{alliance}**",
+					"remove": "Choose an ID channel to remove the link from",
+					"removeSuccess": "The ID channel link has been removed successfully.",
+					"allExist": "All the players you submitted already exist in the database.",
+					"success": "Successfully linked {channel} to **{alliance}**\nUsers can now send player IDs in this channel and they will be automatically added."
+				},
+				"howItWorksField": {
+					"name": "- **How It Works**",
+					"value": "  - Once the ID channel is set, players can submit their game user IDs in that channel. The bot will automatically assign them to the selected alliance based on their submitted ID."
+				},
+				"formatField": {
+					"name": "- **Accepted Formats**",
+					"value": "```\n40393986\n40393986,40393987\n40393986 40393987\n```"
+				},
+				"existingPlayersField": {
+					"name": "Existing Players",
+					"value": "  - **{nickname}** (ID: {id})  - {alliance}"
+				}
+			},
+			"selectMenu": {
+				"selectAlliance": {
+					"placeholder": "Select an alliance to manage its ID channel",
+					"description": "Priority {alliancePriority} | Players: {playerCount}"
+				},
+				"selectChannel": {
+					"placeholder": "Select a channel for this alliance",
+					"description": "Channel: {channelName}"
+				},
+				"removeChannel": {
+					"placeholder": "Select an ID channel to remove"
+				}
+			},
+			"buttons": {
+				"setChannel": "Set ID Channel",
+				"add": "Set ID Channel",
+				"remove": "Remove ID Channel"
+			},
+			"errors": {
+				"noAlliances": "{emoji.1050} No alliances found. Please create an alliance first.",
+				"notFound": "{emoji.1050} Alliance not found. Please try again.",
+				"invalidSelection": "{emoji.1050} Invalid channel selection. Please try again.",
+				"noChannelsToRemove": "{emoji.1050} No ID channels found to remove.",
+				"channelAlreadyLinked": "{emoji.1050} The channel {channel} is already linked to **{alliance}**. A channel can only be linked to one alliance at a time.",
+				"channelIsGiftCodeChannel": "{emoji.1050} The channel {channel} is already being used as a Gift Code Channel. A channel cannot be both an ID channel and a Gift Code channel."
+			}
+		},
+		"movePlayer": {
+			"content": {
+				"title": {
+					"base": "### {emoji.1033} Select Source Alliance",
+					"selectDestination": "### {emoji.1043} Select Destination Alliance",
+					"selectPlayers": "### {emoji.1026} Select Players to Move",
+					"success": "### {emoji.1004} Players Moved Successfully",
+					"cancel": "### {emoji.1051} Move Canceled",
+					"result": "### {emoji.1041} Move Players Results"
+				},
+				"description": {
+					"base": "Choose the alliance you want to move players FROM:",
+					"selectDestination": "Choose the alliance you want to move players **TO**:\n**Source Alliance:** {sourceName}",
+					"selectPlayers": "Select players to move:\n**From:** {sourceName}\n**To:** {destName}",
+					"success": "The **{count}** selected players have been moved successfully to **{destName}**.",
+					"cancel": "The player move operation has been cancelled. No players were moved.",
+					"allMoved": "All players have been moved from **{sourceName}** to **{destName}**."
+				},
+				"movedField": {
+					"name": "- **Successfully Moved**",
+					"value": "  - {movedCount} players moved successfully from **{sourceName}** to **{destName}**"
+				},
+				"notFoundField": {
+					"name": "- **Players Not Found**",
+					"value": "  - {notFoundCount} players were not found in **{sourceName}**\nIDs: {notFoundIds}"
+				},
+				"availablePlayersField": {
+					"name": "- **Available Players to Move**",
+					"value": "  - {availableCount} players are available to move from **{sourceName}**"
+				},
+				"wrongAllianceField": {
+					"name": "- **Different Alliances Detected**",
+					"value": "  - Some players are from different alliances. Do you want to move them anyway?"
+				}
+			},
+			"buttons": {
+				"inputPlayerId": "Move by ID",
+				"confirm": "Move Anyway",
+				"cancel": "Cancel"
+			},
+			"modals": {
+				"title": "Move Players",
+				"playerIdInput": {
+					"label": "Player IDs",
+					"placeholder": "Enter player IDs (e.g., 123456789,987654321)"
+				}
+			},
+			"selectMenu": {
+				"sourceAlliance": {
+					"placeholder": "Select the source alliance",
+					"description": "Priority {priority} | Players: {playerCount}"
+				},
+				"destinationAlliance": {
+					"placeholder": "Select the destination alliance",
+					"description": "Priority {priority} | Players: {playerCount}"
+				},
+				"playerSelection": {
+					"placeholder": "Select players to move",
+					"description": "ID: {id} | Furnace: {furnace} | state: {state}"
+				},
+				"placeholder": {
+					"sourceAlliance": "Select the source alliance",
+					"destinationAlliance": "Select the destination alliance",
+					"playerSelection": "Select players to move"
+				}
+			},
+			"errors": {
+				"noAssignedAlliances": "{emoji.1050} You are not assigned to any alliances.",
+				"insufficientAlliances": "{emoji.1050} At least two alliances are required to move players.",
+				"invalidPlayerIds": "{emoji.1050} Invalid player IDs. Please enter only numeric IDs separated by commas.",
+				"noAlliancesWithMembers": "{emoji.1050} No alliances with members available to move players from.",
+				"noPlayersInAlliance": "{emoji.1050} The selected source alliance has no players to move."
+			}
+		},
+		"removePlayer": {
+			"content": {
+				"title": {
+					"base": "### {emoji.1031} Select Alliance",
+					"selectPlayers": "### {emoji.1027} Select Players",
+					"confirmRemoval": "### {emoji.1050} Confirm Player Removal",
+					"removalSuccess": "### {emoji.1004} Players Removed Successfully"
+				},
+				"description": {
+					"base": "Choose the alliance you want to remove players from:",
+					"selectPlayers": "Select players to remove from **{allianceName}**:",
+					"confirmRemoval": "Are you sure you want to remove {count} player(s) from **{allianceName}**?",
+					"removalSuccess": "The selected players have been removed successfully.",
+					"allRemoved": "All players have been removed from **{allianceName}**."
+				},
+				"playersToRemoveField": {
+					"name": "**Players to Remove**",
+					"value": "- nickname: {nickname}\n  - ID: {id}\n  - furnace: {furnace}\n  - state: {state}"
+				},
+				"playersRemovedField": {
+					"name": "- **Players Removed**",
+					"value": "  - {removedCount} player(s) removed from **{allianceName}**."
+				}
+			},
+			"buttons": {
+				"done": "Done",
+				"accept": "Confirm Removal",
+				"cancel": "Cancel",
+				"inputPlayerId": "Remove by ID"
+			},
+			"modals": {
+				"title": "Remove Players",
+				"playerIdInput": {
+					"label": "Player IDs",
+					"placeholder": "Enter player IDs (e.g., 123456789,987654321)"
+				}
+			},
+			"selectMenu": {
+				"allianceSelect": {
+					"placeholder": "Select an alliance to remove players from",
+					"description": "Priority {alliancePriority} | Players: {playerCount}"
+				},
+				"playerSelect": {
+					"placeholder": "Select players to remove",
+					"description": "ID: {id} | Furnace: {furnace} | state: {state}"
+				}
+			},
+			"errors": {
+				"noAssignedAlliances": "{emoji.1050} You are not assigned to any alliances.",
+				"noAvailableAlliances": "{emoji.1050} No alliances available to remove players from.",
+				"invalidPlayerIds": "{emoji.1050} Invalid player IDs. Please enter only numeric IDs separated by commas.",
+				"noPlayersInAlliance": "{emoji.1050} The selected alliance has no players to remove.",
+				"playersNotFound": "{emoji.1050} Player(s) submitted not found in the player database."
+			}
+		},
+		"export": {
+			"content": {
+				"title": {
+					"base": "### {emoji.1043} Export Players",
+					"selectState": "### {emoji.1040} Select States",
+					"selectAlliance": "### {emoji.1001} Select Alliances",
+					"selectFurnace": "### {emoji.1012} Select Furnace Levels",
+					"generated": "### {emoji.1004} CSV Generated"
+				},
+				"description": {
+					"base": "Select filters and generate a CSV export of players.",
+					"selectState": "Choose states to filter by, or select \"All States\".",
+					"selectAlliance": "Choose alliances to filter by, or select \"All Alliances\".",
+					"selectFurnace": "Choose furnace levels to filter by. Selecting an FC level includes all its sub-levels in the export."
+				},
+				"filtersField": {
+					"name": "- **Current Filters**",
+					"value": "  - State: {state}\n  - Alliance: {alliance}\n  - Furnace Level: {furnace}"
+				},
+				"all": "All",
+				"count": "Matching Players: {playerCount}",
+				"generated": "CSV generated successfully! {playerCount} players match the selected filters."
+			},
+			"buttons": {
+				"state": "State",
+				"alliance": "Alliance",
+				"furnace": "Furnace Level",
+				"generate": "Generate CSV"
+			},
+			"selectMenu": {
+				"stateFilter": {
+					"placeholder": "Select states to filter by",
+					"all": "All States"
+				},
+				"allianceFilter": {
+					"placeholder": "Select alliances to filter by",
+					"all": "All Alliances"
+				},
+				"furnaceFilter": {
+					"placeholder": "Select furnace levels to filter by",
+					"all": "All Furnace Levels"
+				}
+			},
+			"errors": {
+				"noAlliances": "{emoji.1050} No alliances assigned or available.",
+				"noPlayers": "{emoji.1050} No players found.",
+				"noFurnaceLevels": "{emoji.1050} No furnace levels found.",
+				"selectionTooLarge": "{emoji.1050} Selection too large. Please select fewer items.",
+				"noMatchingPlayers": "{emoji.1050} No players match the selected filters."
+			}
+		}
+	},
+	"giftCode": {
+		"mainPage": {
+			"content": {
+				"title": "### {emoji.1013} Gift Codes",
+				"description": "Manage auto gift codes redeem for your alliance members",
+				"addGiftCodeField": {
+					"name": "- **Add Gift Code**",
+					"value": "  - Add a new gift code for auto redeem"
+				},
+				"useGiftCodeField": {
+					"name": "- **Use GiftCode**",
+					"value": "  - Redeem a gift code for alliances"
+				},
+				"toggleGiftCodeField": {
+					"name": "- **Auto redeem GiftCode**",
+					"value": "  - Enable or disable auto redeem gift code for alliance"
+				},
+				"setTestIdField": {
+					"name": "- **Set Test ID**",
+					"value": "  - Set a custom test player ID to validate gift code on"
+				},
+				"deleteGiftCodeField": {
+					"name": "- **Delete GiftCode**",
+					"value": "  - Remove an existing gift code"
+				},
+				"listGiftCodesField": {
+					"name": "- **List GiftCodes**",
+					"value": "  - View all available gift codes"
+				}
+			},
+			"buttons": {
+				"addGiftCode": "Add GiftCode",
+				"setTestId": "Set Test ID",
+				"removeGiftCode": "Remove GiftCode",
+				"viewGiftCodes": "List GiftCode",
+				"toggleGiftCode": "Toggle GiftCode",
+				"useGiftCode": "Use GiftCode"
+			},
+			"errors": {}
+		},
+		"addGiftCode": {
+			"content": {
+				"title": "### {emoji.1033} Gift Code is being validated",
+				"description": "Processing gift code: {giftCode}\nPlease wait...",
+				"giftCodeAdded": "Gift code added successfully!",
+				"giftCodeInfo": "Code: {giftCode}",
+				"footer": "Auto-redeem started for eligible alliances."
+			},
+			"buttons": {
+				"addGiftCode": "Add Gift Code"
+			},
+			"modal": {
+				"title": "Add Gift Code",
+				"giftCodeInput": {
+					"label": "Gift Code",
+					"placeholder": "Enter the gift code to add"
+				}
+			},
+			"errors": {
+				"invalidGiftCode": "{emoji.1050} Invalid gift code. Please enter a valid code.",
+				"giftCodeExists": "{emoji.1050} This gift code already exists."
+			}
+		},
+		"giftSetTestId": {
+			"content": {
+				"title": "### {emoji.1004} Test ID Updated Successfully",
+				"description": "The custom test ID has been set to the following player:",
+				"playerInfoField": {
+					"name": "- {emoji.1026} **Player Info**",
+					"value": "  - **Nickname:** {nickname}\n  - **Player ID:** {playerId}\n  - **Furnace lv:** {furnace}\n  - **State:** {state}"
+				},
+				"processingMessage": "Geting player information..."
+			},
+			"buttons": {
+				"setTestId": "Set Test ID"
+			},
+			"modal": {
+				"title": "Set Test ID",
+				"testIdInput": {
+					"label": "Player ID",
+					"placeholder": "Enter the player ID to set as test ID"
+				}
+			},
+			"errors": {
+				"invalidTestId": "{emoji.1050} Invalid Test ID. Please enter a valid ID."
+			}
+		},
+		"redeemGiftCode": {
+			"content": {
+				"title": {
+					"base": "### {emoji.1043} Select Alliance(s) to Redeem Gift Code",
+					"selectGiftCode": "### {emoji.1013} Select Gift Code to Redeem",
+					"success": "### {emoji.1004} Redemption Process Started"
+				},
+				"description": {
+					"base": "Select one or more alliances to redeem the gift code for:",
+					"selectGiftCode": "Select a gift code to redeem for: **{alliances}**",
+					"success": "Gift code **{code}** is being redeemed for {count} alliance(s)."
+				},
+				"summeryField": {
+					"name": "- **Summary**",
+					"value": "  - Started {total} redemption processes "
+				},
+				"vip": "[VIP]",
+				"api": "wosland Network",
+				"manual": "Manual Entry"
+			},
+			"buttons": {
+				"useGiftCode": "Redeem Gift Code"
+			},
+			"selectMenu": {
+				"selectAlliance": {
+					"placeholder": "Select alliance(s)",
+					"description": "Priority: {priority} | Players: {playerCount}",
+					"allAlliances": "All Alliances"
+				},
+				"selectGiftCode": {
+					"placeholder": "Select a gift code to redeem",
+					"description": "Source: {source} | Added: {date}",
+					"allGiftCodes": "All Gift Codes"
+				}
+			},
+			"errors": {
+				"noActiveGiftCodes": "{emoji.1050} No active gift codes found. Please add gift codes first.",
+				"noAlliances": "{emoji.1050} No alliances found. Please create an alliance first.",
+				"noPlayers": "{emoji.1050} No alliances with players found.",
+				"noGiftCodes": "{emoji.1050} No gift codes available for redemption."
+			}
+		},
+		"apiGiftCode": {
+			"content": {
+				"title": "{emoji.1013} New Gift Code Found!",
+				"giftCodeDetailsField": {
+					"name": "Gift Code Details",
+					"value": "- **Code:** {giftCode}\n- **Date:** {date}\n- **Source:** {source}\n- **Time:** {time}"
+				},
+				"autoRedeem": "{emoji.1033} Auto-Redeem",
+				"autoRedeemValue": "Started for {count} eligible alliances.",
+				"sourceAPI": "Retrieved from WOSLand network"
+			}
+		},
+		"removeGiftCode": {
+			"content": {
+				"title": {
+					"base": "### {emoji.1046} Remove Gift Codes",
+					"confirm": "### {emoji.1050} Confirm Removal",
+					"success": "### {emoji.1004} Gift Code Removed Successfully",
+					"partialSuccess": "### {emoji.1050} Partial Success",
+					"cancel": "### {emoji.1051} Removal Canceled"
+				},
+				"description": {
+					"base": "Select the gift codes you want to remove from the bot.\n**Available Gift Codes:** {codesCount}",
+					"cancel": "Gift code deletion has been cancelled. No changes were made."
+				},
+				"giftCodesToRemoveField": {
+					"name": "- **Gift Codes To Remove**",
+					"value": "  - You are about to delete the following gift codes:\n{codes}"
+				},
+				"removedCodesField": {
+					"name": "- **Removed Gift Codes**",
+					"value": "{codes}"
+				},
+				"failedCodesField": {
+					"name": "- **Failed to Remove**",
+					"value": "{codes}"
+				},
+				"active": "Active",
+				"inactive": "Expired"
+			},
+			"buttons": {
+				"confirm": "Confirm Removal",
+				"cancel": "Cancel"
+			},
+			"selectMenu": {
+				"selectGiftCodes": {
+					"placeholder": "Select gift codes to remove"
+				}
+			},
+			"errors": {
+				"noGiftCodes": "{emoji.1050} No gift codes found to remove."
+			}
+		},
+		"viewGiftCodes": {
+			"content": {
+				"title": "### {emoji.1021} Gift Codes List",
+				"description": "**Statistics:**\n- Total Codes: **{totalCodesCount}**\n- Active: **{activeCodesCount}** | Invalid: **{invalidCodesCount}**\n- VIP Codes: **{vipCodesCount}**\n- Total Redemptions: **{totalUsages}**",
+				"giftCodeDetails": "Uses: {usageCount} | Source: {source}"
+			},
+			"errors": {
+				"noGiftCodes": "{emoji.1050} No gift codes found. Please add gift codes first."
+			}
+		},
+		"autoRedeem": {
+			"content": {
+				"title": {
+					"base": "### {emoji.1004} Toggle Auto-Redeem",
+					"results": "### {emoji.1041} Auto-Redeem Status Updated"
+				},
+				"description": "Select one or more alliances to toggle their auto-redeem status.",
+				"resultTitle": "### {emoji.1004} Auto-Redeem Status Updated\n",
+				"enabledField": {
+					"name": "- **Enabled for**",
+					"value": "  - {enabledAlliances}"
+				},
+				"disabledField": {
+					"name": "- **Disabled for**",
+					"value": "  - {disabledAlliances}"
+				}
+			},
+			"buttons": {
+				"toggleAutoRedeem": "Auto-Redeem"
+			},
+			"selectMenu": {
+				"selectAlliances": {
+					"placeholder": "Select alliances to toggle auto-redeem",
+					"description": "Priority: {priority} | Auto-Redeem: {autoRedeemStatus}",
+					"enabled": "Enabled",
+					"disabled": "Disabled"
+				}
+			},
+			"errors": {
+				"noAlliances": "{emoji.1050} No alliances found."
+			}
+		},
+		"giftCodeChannel": {
+			"content": {
+				"title": {
+					"base": "### {emoji.1014} Gift Code Channel Management",
+					"add": "### {emoji.1041} Add Gift Code Channel",
+					"remove": "### {emoji.1042} Remove Gift Code Channel"
+				},
+				"description": {
+					"base": "Set up channels where users can submit gift codes directly. The bot will validate and add valid codes automatically.",
+					"add": "Select a text channel to monitor for gift code submissions.\n- **Supported formats:**\n  - Plain text: `GIFTCODE123`\n  - Announcement: `Code: GIFTCODE123`",
+					"remove": "Select a channel to stop monitoring for gift codes."
+				},
+				"channelAdded": "### {emoji.1004} Channel Added Successfully\n\nNow monitoring **<#{channelID}>** for gift code submissions.",
+				"channelRemoved": "### {emoji.1004} Channel Removed Successfully\n\nNo longer monitoring the selected channel."
+			},
+			"buttons": {
+				"manageChannel": "Gift Channel",
+				"add": "Add Channel",
+				"remove": "Remove Channel"
+			},
+			"selectMenu": {
+				"selectChannel": {
+					"placeholder": "Select a channel to monitor"
+				},
+				"removeChannel": {
+					"placeholder": "Select a channel to remove"
+				}
+			},
+			"messages": {
+				"added": "{emoji.1004} Gift code **{giftCode}** has been validated and added!",
+				"alreadyExists": "{emoji.1017} Gift code **{giftCode}** already exists in the database.",
+				"invalid": "{emoji.1050} Gift code **{giftCode}** is invalid or expired.",
+				"invalidFormat": "{emoji.1050} Invalid gift code format. Please send a plain gift code or use 'Code: <code>' format.",
+				"redeemFailed": "{emoji.1050} Gift code added, but auto-redeem failed. Please check the processes."
+			},
+			"errors": {
+				"noChannels": "{emoji.1050} No gift code channels found.",
+				"channelNotFound": "{emoji.1050} Channel not found.",
+				"channelAlreadyExists": "{emoji.1050} This channel is already being monitored.",
+				"channelIsIdChannel": "{emoji.1050} The channel {channel} is already being used as an ID channel for **{alliance}**. A channel cannot be both an ID channel and a Gift Code channel."
+			}
+		}
+	},
+	"notification": {
+		"mainPage": {
+			"content": {
+				"title": "### {emoji.1022} Notifications",
+				"description": "Create and manage notifications for alliances and events.",
+				"createNotificationField": {
+					"name": "- **Create Notification**",
+					"value": "  - Create a new notification"
+				},
+				"updateNotificationField": {
+					"name": "- **Update Notification**",
+					"value": "  - Update the details of an existing notification"
+				},
+				"deleteNotificationField": {
+					"name": "- **Delete Notification**",
+					"value": "  - Delete an existing notification"
+				},
+				"templateLibraryField": {
+					"name": "- **Template Library**",
+					"value": "  - Create, share, and customize notification templates"
+				}
+			},
+			"buttons": {
+				"createNotification": "Create Notification",
+				"deleteNotification": "Delete Notification"
+			}
+		},
+		"createNotification": {
+			"content": {
+				"title": {
+					"base": "### Choose notification type"
+				},
+				"description": {},
+				"serverNotificationField": {
+					"name": "- **Server Notification**",
+					"value": "  - A notification sent to a channel in this server."
+				},
+				"privateNotificationField": {
+					"name": "- **Private Notification**",
+					"value": "  - A notification sent to Your DMs."
+				}
+			},
+			"buttons": {
+				"serverNotification": "Server Notification",
+				"privateNotification": "Private Notification"
+			},
+			"modal": {
+				"title": {
+					"notificationDetails": "Notification Details"
+				},
+				"nameInput": {
+					"label": "Notification Name",
+					"placeholder": "Enter a name for the notification"
+				},
+				"dateInput": {
+					"label": "Date (DD/MM/YYYY)",
+					"placeholder": "Enter the date (DD/MM/YYYY)"
+				},
+				"timeInput": {
+					"label": "Time (HH:MM:SS)",
+					"placeholder": "Enter the time (HH:MM:SS)"
+				}
+			},
+			"errors": {
+				"invalidDateFormat": "{emoji.1050} Invalid date format. Use DD/MM/YYYY",
+				"invalidTimeFormat": "{emoji.1050} Invalid time format. Use HH:MM:SS",
+				"invalidDateTime": "{emoji.1050} Invalid date or time values.",
+				"notificationNotFound": "{emoji.1050} Notification not found.",
+				"embedRequiresContent": "{emoji.1050} When embed is enabled, you must provide at least one of: Title, Description, Fields, Author, Footer, Image, or Thumbnail.",
+				"messageContentRequired": "{emoji.1050} When embed is disabled, message content is required and cannot be the default value."
+			}
+		},
+		"deleteNotification": {
+			"content": {
+				"title": {
+					"base": "### {emoji.1046} Delete Notification",
+					"typeSelection": "### {emoji.1046} Choose Notification Type",
+					"confirm": "### {emoji.1050} Confirm Deletion",
+					"success": "### {emoji.1004} Notification Deleted",
+					"cancel": "### {emoji.1051} Deletion Canceled"
+				},
+				"description": {
+					"base": "Select a notification to delete from the list below.\n**Total Notifications:** {count}",
+					"typeSelection": "Choose which type of notifications you want to view for deletion.",
+					"confirm": "Are you sure you want to delete this notification?\nThis action cannot be undone.",
+					"success": "**{name}** has been deleted successfully.",
+					"cancel": "Notification deletion has been canceled."
+				},
+				"notificationDetailsField": {
+					"name": "- **Notification Details**",
+					"value": "  - **Name:** {name}\n  - **Type:** {type}\n  - **Status:** {status}\n  - **Next Trigger:** {trigger}\n  - **Repeat:** {repeat}"
+				},
+				"typeServer": "Server Notification",
+				"typePrivate": "Private Notification",
+				"statusActive": "Active",
+				"statusInactive": "Inactive",
+				"repeatEnabled": "Enabled",
+				"repeatDisabled": "Disabled"
+			},
+			"buttons": {
+				"deleteNotification": "Delete Notification",
+				"serverNotifications": "Server Notifications",
+				"privateNotifications": "Private Notifications",
+				"confirm": "Confirm Deletion",
+				"cancel": "Cancel"
+			},
+			"selectMenu": {
+				"placeholder": "Select a notification to delete",
+				"description": "Channel: {channelName} | Created by: {creatorName}"
+			},
+			"errors": {
+				"noNotifications": "{emoji.1050} No notifications found.",
+				"noServerNotifications": "{emoji.1050} No server notifications found.",
+				"noPrivateNotifications": "{emoji.1050} No private notifications found.",
+				"notificationNotFound": "{emoji.1050} Notification not found."
+			}
+		},
+		"editNotification": {
+			"content": {
+				"title": {
+					"base": "### {emoji.1008} Edit Notification",
+					"typeSelection": "### {emoji.1008} Choose Notification Type",
+					"editPanel": "{emoji.1008} Edit Notification"
+				},
+				"description": {
+					"base": "Select a notification to edit from the list below.\n**Total Notifications:** {count}",
+					"typeSelection": "Choose which type of notifications you want to view for editing.",
+					"editPanel": "Click the buttons below to edit different aspects of this notification."
+				},
+				"nameField": {
+					"name": "Name"
+				},
+				"typeField": {
+					"name": "Type"
+				},
+				"statusField": {
+					"name": "Status"
+				},
+				"channelField": {
+					"name": "Channel",
+					"directMessage": "Direct Message"
+				},
+				"triggerField": {
+					"name": "Next Trigger"
+				},
+				"repeatField": {
+					"name": "Repeat"
+				},
+				"patternField": {
+					"name": "Pattern"
+				},
+				"typeServer": "Server Notification",
+				"typePrivate": "Private Notification",
+				"statusActive": "Active",
+				"statusInactive": "Inactive",
+				"infoUpdated": "Notification info updated successfully!",
+				"saved": "Notification changes saved successfully!"
+			},
+			"buttons": {
+				"editNotification": "Edit Notification",
+				"serverNotifications": "Server Notifications",
+				"privateNotifications": "Private Notifications",
+				"info": "Info",
+				"content": "Content",
+				"repeat": "Repeat",
+				"pattern": "Pattern",
+				"save": "Save"
+			},
+			"selectMenu": {
+				"placeholder": "Select a notification to edit",
+				"description": "Channel: {channelName} | Created by: {creatorName}"
+			},
+			"modal": {
+				"info": {
+					"title": "Edit Notification Info",
+					"nameField": {
+						"label": "Notification Name",
+						"placeholder": "Enter notification name"
+					},
+					"dateField": {
+						"label": "Date (DD/MM/YYYY)",
+						"placeholder": "31/12/2026"
+					},
+					"timeField": {
+						"label": "Time (HH:MM:SS) UTC",
+						"placeholder": "14:30:00"
+					}
+				}
+			},
+			"errors": {
+				"noNotifications": "{emoji.1050} No notifications found.",
+				"noServerNotifications": "{emoji.1050} No server notifications found.",
+				"noPrivateNotifications": "{emoji.1050} No private notifications found.",
+				"notificationNotFound": "{emoji.1050} Notification not found.",
+				"invalidDateFormat": "{emoji.1050} Invalid date format. Use DD/MM/YYYY.",
+				"invalidTimeFormat": "{emoji.1050} Invalid time format. Use HH:MM:SS.",
+				"invalidDateTime": "{emoji.1050} Invalid date or time values.",
+				"timeInPast": "{emoji.1050} The trigger time is in the past. Use the **Info** button to set a future trigger time."
+			}
+		},
+		"notificationEditor": {
+			"content": {
+				"title": {
+					"mentionsConfigure": "{emoji.1042} Select Tag to Configure",
+					"mentionTarget": "{emoji.1042} Select Target for @{tag}",
+					"selectType": "{emoji.1042} Mention Configuration",
+					"configuredTags": "{emoji.1004} Tag Configured"
+				},
+				"description": {
+					"mentionsConfigure": "Choose a tag to configure or edit. Click **Save** when done.\n**Total Tags:** {totalCount}\n**Configured:** {configuredCount}/{totalCount}",
+					"configuredTags": "Successfully configured **@{tag}** → {mentionDisplay}\nSelect another tag to configure or click **Save** to finish.",
+					"chooseTarget": "Choose who **@{tag}** should mention.",
+					"selectType": "Choose what type of mention **@{tag}** should be."
+				},
+				"removeField": "Select the fields you want to remove:",
+				"fieldRemoved": "Selected field removed successfully!",
+				"fieldReordered": "Select which field to move:",
+				"whereToMove": "Moving field: **{selectedField}**\nSelect which field to move it above:",
+				"fieldsReordered": "Field reordered successfully!",
+				"editField": "Select the field you want to edit:",
+				"fieldEdited": "Field updated successfully!",
+				"mentionsSaved": "All mentions saved successfully!",
+				"notConfigured": "Not configured",
+				"user": "User: {userName}",
+				"role": "Role: {roleName}",
+				"UnknownRole": "Unknown Role",
+				"noDescription": "{type}: {id}"
+			},
+			"buttons": {
+				"messageContent": "Set Message Content",
+				"toggleEmbed": "Toggle Embed",
+				"addField": "Add Field",
+				"editField": "Edit Field",
+				"removeField": "Remove Field",
+				"reorderFields": "Reorder Fields",
+				"userMentions": "User",
+				"roleMentions": "Role",
+				"save": "Save",
+				"enableHelper": "Enable Helper",
+				"disableHelper": "Disable Helper"
+			},
+			"editorSelectMenu": {
+				"placeholder": "Select a component to edit",
+				"options": {
+					"title": "Title",
+					"description": "Description",
+					"color": "Color",
+					"image": "Image",
+					"thumbnail": "Thumbnail",
+					"footer": "Footer",
+					"author": "Author"
+				}
+			},
+			"modal": {
+				"messageContent": {
+					"title": "Edit Message Content",
+					"label": "Message Content"
+				},
+				"embedEditor": {
+					"title": {
+						"title": "Edit Title",
+						"label": "Title",
+						"placeholder": "Enter the title"
+					},
+					"description": {
+						"title": "Edit Description",
+						"label": "Description",
+						"placeholder": "Enter the description"
+					},
+					"color": {
+						"title": "Edit Color",
+						"label": "Color (Hex Code)",
+						"placeholder": "e.g., #FF5733 for orange"
+					},
+					"image": {
+						"title": "Edit Image",
+						"label": "Image URL",
+						"placeholder": "https://example.com/image.png"
+					},
+					"thumbnail": {
+						"title": "Edit Thumbnail",
+						"label": "Thumbnail URL",
+						"placeholder": "https://example.com/thumbnail.png"
+					},
+					"footer": {
+						"title": "Edit Footer",
+						"label": "Footer Text",
+						"placeholder": "Enter the footer text"
+					},
+					"author": {
+						"title": "Edit Author",
+						"label": "Author Name",
+						"placeholder": "Enter the author name"
+					},
+					"addField": {
+						"title": "Add New Field",
+						"fieldName": {
+							"label": "Field Name",
+							"placeholder": "Enter field name"
+						},
+						"fieldValue": {
+							"label": "Field Value",
+							"placeholder": "Enter field value"
+						},
+						"fieldInline": {
+							"label": "Inline",
+							"placeholder": "true/false"
+						}
+					},
+					"editField": {
+						"title": "Edit Embed Field",
+						"fieldName": {
+							"label": "Field Name",
+							"placeholder": "Enter field name"
+						},
+						"fieldValue": {
+							"label": "Field Value",
+							"placeholder": "Enter field value"
+						},
+						"fieldInline": {
+							"label": "Inline",
+							"placeholder": "true/false"
+						}
+					},
+					"removeField": {
+						"title": "Remove Embed Field",
+						"label": "Field Number(s)",
+						"placeholder": "e.g., 1 or 1,3,5"
+					},
+					"reorderField": {
+						"title": "Reorder Embed Field",
+						"fromPosition": "From Position",
+						"toPosition": "To Position",
+						"fromPlaceholder": "Current position (e.g., 1)",
+						"toPlaceholder": "New position (e.g., 3)"
+					}
+				}
+			},
+			"selectMenu": {
+				"fieldSelection": {
+					"placeholder": {
+						"remove": "Select field to remove",
+						"move": "Select field to move",
+						"edit": "Select field to edit",
+						"whereToMove": "Move above which field?",
+						"userMention": "Select a user ",
+						"roleMention": "Select a role"
+					},
+					"description": {
+						"move": "Move above this field: {name}",
+						"moveBottom": "Place this field at the end of the list"
+					},
+					"label": {
+						"move": "Move to Bottom"
+					}
+				},
+				"mentionsSelect": {
+					"placeholder": "Select a tag to configure"
+				}
+			},
+			"defaultValues": {
+				"messageContent": "Tips:\nTo mention a user or role, use @tag in the message content.\nTo mention multiple targets, add numbers to the tag (for example: @tag1, @tag2).",
+				"embedTitle": "Notification Title",
+				"embedDescription": "This is the description of the notification.",
+				"embedColor": "#0099ff",
+				"embedImage": "https://i.imgur.com/1fi1jFy.png",
+				"embedThumbnail": "https://i.imgur.com/518m4Pc.png",
+				"embedFooter": "Notification Footer",
+				"embedAuthor": "Notification Author",
+				"embedFields": [
+					{
+						"name": "Default Field",
+						"value": "This is a default field value.",
+						"inline": false
+					}
+				]
+			},
+			"errors": {
+				"embedTooLarge": "{emoji.1050} Embed limit reached! Total characters: {totalSize}/6000.",
+				"tooManyFields": "{emoji.1050} Cannot add more than 25 fields to an embed.",
+				"noFieldsToRemove": "{emoji.1050} No fields available to remove.",
+				"notificationNotFound": "{emoji.1050} Notification not found.",
+				"invalidFieldIndex": "{emoji.1050} Invalid field number(s). Please provide valid numbers separated by commas (e.g., 1,3,5).",
+				"notEnoughFieldsToReorder": "{emoji.1050} Need at least 2 fields to reorder.",
+				"invalidFieldPosition": "{emoji.1050} Invalid field positions. Make sure both positions are within range and different.",
+				"noFieldsToEdit": "{emoji.1050} No fields available to edit."
+			}
+		},
+		"notificationSettings": {
+			"content": {
+				"title": {
+					"pattern": "⏰ Set Notification Timing",
+					"repeat": "{emoji.1033} Set Repeat Frequency",
+					"notificationPreview": "{emoji.1022} Notification Preview",
+					"notificationInformation": "{emoji.1017} Notification Information",
+					"selectChannel": "{emoji.1022} Select Notification Channel"
+				},
+				"description": {
+					"pattern": "Choose whether you want the notification to follow a special pattern.\nFor example: selecting \"5 & 15 minutes before\" will send two notifications, one 15 minutes before your set time, and another 5 minutes before.",
+					"repeat": "Choose how often you want this notification to repeat after the initial trigger time.",
+					"selectChannel": "Choose the channel where this notification will be sent.",
+					"notificationPreview": "Here is a preview of how your notification will look:"
+				},
+				"nameField": {
+					"name": "Name",
+					"value": "{notificationName}"
+				},
+				"channelField": {
+					"name": "Channel",
+					"value": "{channelMention}",
+					"directMessage": "Direct Message"
+				},
+				"TriggerField": {
+					"name": "Scheduled Time",
+					"value": "{TriggerTime}"
+				},
+				"repeatField": {
+					"name": "Repeat Interval",
+					"value": "{repeat}"
+				},
+				"patternField": {
+					"name": "Pattern",
+					"value": "{pattern}",
+					"time": "Time"
+				}
+			},
+			"buttons": {
+				"fiveMinutes": "5 Minutes Before",
+				"fiveAndFifteenMinutes": "5 & 15 Minutes Before",
+				"onTime": "On Time Only",
+				"everyDay": "Every Day",
+				"every2Days": "Every 2 Days",
+				"every2Weeks": "Every 2 Weeks",
+				"noRepeat": "No Repeat",
+				"custom": "Custom",
+				"updateTime": "Update Time"
+			},
+			"selectMenu": {
+				"channelPlaceholder": "Select a channel for the notification"
+			},
+			"modal": {
+				"customPattern": {
+					"title": "Custom Pattern",
+					"label": "Pattern (X or X,X,time)",
+					"description": "The values represent minutes before the scheduled time when the notification will be sent.",
+					"placeholder": "e.g., 5 or 5,10,time"
+				},
+				"customRepeat": {
+					"title": "Custom Repeat Interval",
+					"seconds": "Seconds",
+					"minutes": "Minutes",
+					"hours": "Hours",
+					"days": "Days",
+					"months": "Months (30 days each)",
+					"placeholder": "Enter repeat interval in minutes"
+				},
+				"updateTime": {
+					"title": "Update Notification Time",
+					"nameField": {
+						"label": "Notification Name",
+						"placeholder": "Enter the notification name"
+					},
+					"dateField": {
+						"label": "Date (DD/MM/YYYY)",
+						"placeholder": "Enter the date (DD/MM/YYYY)"
+					},
+					"timeField": {
+						"label": "Time (HH:MM:SS)",
+						"placeholder": "Enter the time (HH:MM:SS)"
+					}
+				}
+			},
+			"errors": {
+				"invalidRepeat": "{emoji.1050} At least one time value must be greater than 0.",
+				"timeInPast": "{emoji.1050} The trigger time must be in the future.",
+				"triggerTimePassed": "{emoji.1050} The specified trigger time has already passed. Please update the time to a future date.",
+				"invalidChannel": "{emoji.1050} Invalid channel selected. Please choose a valid channel.",
+				"notificationNotFound": "{emoji.1050} Notification not found.",
+				"timeStillInPast": "{emoji.1050} The time you entered is still in the past. Please enter a future time."
+			}
+		},
+		"templateLibrary": {
+			"content": {
+				"title": "### {emoji.1044} Template Library",
+				"shareField": {
+					"name": "- **Share Template** ",
+					"value": "  - Save a notification as a reusable JSON template that others can customize"
+				},
+				"uploadField": {
+					"name": "- **Add from File** ",
+					"value": "  - Open a template shared by another user and edit it before saving"
+				}
+			},
+			"buttons": {
+				"templateLibrary": "Template Library",
+				"shareNotification": "Share Template",
+				"uploadNotification": "Add from File"
+			}
+		},
+		"shareNotification": {
+			"content": {
+				"title": {
+					"typeSelection": "### {emoji.1018} Share Notification Template",
+					"notificationSelection": "### {emoji.1018} Select Notification to Share",
+					"success": "### {emoji.1004} Notification Generated"
+				},
+				"description": {
+					"typeSelection": "Choose the type of notification you want to share:",
+					"notificationSelection": "Select a notification from the list below to share as a template:",
+					"exportSuccess": "Successfully created notification **{name}** Template \nDownload and share it with others."
+				}
+			},
+			"buttons": {
+				"serverNotifications": "Server Notifications",
+				"privateNotifications": "Private Notifications"
+			},
+			"selectMenu": {
+				"placeholder": "Select a notification to export",
+				"description": "Created By : {createdBy}"
+			},
+			"errors": {
+				"noServerNotifications": "{emoji.1050} No server notifications found. Create one first!",
+				"noPrivateNotifications": "{emoji.1050} No private notifications found. Create one first!",
+				"notificationNotFound": "{emoji.1050} Notification not found.",
+				"exportFailed": "{emoji.1050} Failed to export notification. Please try again."
+			}
+		},
+		"uploadNotification": {
+			"content": {
+				"title": {
+					"instructions": "### {emoji.1043} Upload Notification Template",
+					"typeSelection": "### {emoji.1022} Choose Notification Type"
+				},
+				"description": {
+					"instructions": "Click the button below to upload your notification template file and get started"
+				},
+				"validationSuccess": "Template validated: **{name}**",
+				"typePrompt": "Choose the type for this notification:"
+			},
+			"buttons": {
+				"serverNotification": "Server Notification",
+				"privateNotification": "Private Notification"
+			},
+			"modal": {
+				"title": "Upload Notification Template",
+				"fileInput": {
+					"label": "Notification Template File"
+				},
+				"nameInput": {
+					"label": "Notification Name",
+					"placeholder": "Enter a name for this notification"
+				},
+				"dateInput": {
+					"label": "Date (DD/MM/YYYY)",
+					"placeholder": "DD/MM/YYYY"
+				},
+				"timeInput": {
+					"label": "Time (HH:MM:SS UTC)",
+					"placeholder": "HH:MM:SS"
+				}
+			},
+			"errors": {
+				"invalidFileType": "{emoji.1050} Invalid file type. Please upload a `.json` file.",
+				"invalidJSON": "{emoji.1050} Invalid JSON format:",
+				"dataExpired": "{emoji.1050} Upload session expired. Please upload the file again.",
+				"fileTooLarge": "{emoji.1050} File size exceeds the 5 MB limit. Please upload a smaller file.",
+				"processingError": "{emoji.1050} Failed to process template. Please try again.",
+				"invalidDateFormat": "{emoji.1050} Invalid date format. Use DD/MM/YYYY (e.g., 25/12/2024)",
+				"invalidTimeFormat": "{emoji.1050} Invalid time format. Use HH:MM:SS (e.g., 14:30:00)",
+				"invalidDateTime": "{emoji.1050} Invalid date or time values. Please check your input."
+			}
+		}
+	},
+	"settings": {
+		"mainPage": {
+			"content": {
+				"title": "### {emoji.1038} Bot Settings",
+				"description": "Configure various bot settings and preferences.",
+				"languageField": {
+					"name": "- **Language**",
+					"value": "  - Change the bot's language when interacting with you."
+				},
+				"adminManagementField": {
+					"name": "- **Admin Management**",
+					"value": "  - Manage bot admins and their permissions."
+				},
+				"themeField": {
+					"name": "- **Themes**",
+					"value": "  - Customize the appearance of bot messages with different themes."
+				},
+				"autoDeleteField": {
+					"name": "- **Auto-Delete Non-Existent Players**",
+					"value": "  - Automatically remove players who no longer exist after 3 checks.\n  - Current status: **{autoDelete}**."
+				},
+				"mergeField": {
+					"name": "- **Merge Data**",
+					"value": "  - Merge your old python bot data with this new version to keep all your stats and history intact."
+				},
+				"backupField": {
+					"name": "- **Backup Data**",
+					"value": "  - Create and configure backups of your bot data using Google Drive."
+				},
+				"autoUpdateField": {
+					"name": "- **Auto Update**",
+					"value": "  - Check for and apply bot updates directly from GitHub."
+				},
+				"disabled": "Disabled",
+				"enabled": "Enabled"
+			},
+			"buttons": {
+				"language": "Change Language",
+				"adminManagement": "Admin Management",
+				"autoDelete": "Auto Delete",
+				"theme": "Themes",
+				"merge": "Merge Data",
+				"backup": "Backup Data",
+				"autoUpdate": "Auto Update",
+				"backToSettings": "Back"
+			},
+			"errors": {}
+		},
+		"autoUpdate": {
+			"content": {
+				"title": "### {emoji.1033} Auto Update",
+				"description": {
+					"upToDate": "You are running the latest version!",
+					"updateAvailable": "A new version is available! Click the button below to update.",
+					"checkFailed": "Could not check for updates.",
+					"applying": "Applying update... This may take a moment. The bot will restart automatically."
+				},
+				"currentVersion": "**Current Version:** v{currentVersion}",
+				"latestVersion": "Latest Version: v{latestVersion}",
+				"success": "{emoji.1004} Update applied successfully! Restarting the bot...",
+				"failed": "{emoji.1050} Update failed. Ensure the bot has enough space to download updates. Please check the logs for more details."
+			},
+			"buttons": {
+				"applyUpdate": "Apply Update"
+			},
+			"errors": {
+				"notAvailable": "{emoji.1050} Update system is not available in this environment."
+			}
+		},
+		"language": {
+			"content": {
+				"title": {
+					"base": "### {emoji.1018} Language Selection",
+					"changed": "### {emoji.1004} Language Changed"
+				},
+				"currentLanguageField": {
+					"name": "- Current Language",
+					"value": "  - {languageName}"
+				},
+				"description": "Select your preferred language from the dropdown menu below."
+			},
+			"selectMenu": {
+				"placeholder": "Select your preferred language"
+			}
+		},
+		"adminManagement": {
+			"content": {
+				"title": "### {emoji.1027} Admin Management",
+				"description": "Manage bot admins and their permissions.",
+				"addAdminField": {
+					"name": "- **Add Admin**",
+					"value": "  - Promote a user to admin"
+				},
+				"removeAdminField": {
+					"name": "- **Remove Admin**",
+					"value": "  - Demote an admin to regular user"
+				},
+				"assignPermissionsField": {
+					"name": "- **Assign Permissions**",
+					"value": "  - Modify admin permissions"
+				},
+				"viewAdminsField": {
+					"name": "- **View Admin**",
+					"value": "  - List all current admins and their permissions"
+				}
+			},
+			"buttons": {
+				"manageAdmins": "Manage Admins",
+				"addAdmin": "Add Admin",
+				"removeAdmin": "Remove Admin",
+				"assignPermissions": "Assign Permissions",
+				"viewAdmin": "View Admin"
+			}
+		},
+		"addAdmin": {
+			"content": {
+				"title": {
+					"base": "### {emoji.1027} Select User to Promote",
+					"success": "### {emoji.1004} Admin Added Successfully"
+				},
+				"description": {
+					"base": "Select a user from the dropdown menu below to promote them to admin.",
+					"success": "{admin} has been promoted to admin."
+				}
+			},
+			"selectMenu": {
+				"selectUser": {
+					"placeholder": "Select a user to promote to admin"
+				}
+			},
+			"errors": {
+				"userAlreadyAdmin": "{emoji.1050} {selectedUser} is already an admin."
+			}
+		},
+		"assignAdmin": {
+			"content": {
+				"title": {
+					"base": "### {emoji.1008} Select Admin to Edit",
+					"edit": "### {emoji.1008} Edit Permissions",
+					"success": "### {emoji.1004} Admin Permissions Updated"
+				},
+				"description": {
+					"base": "Select an admin from the dropdown menu below to edit their permissions.",
+					"selectPermissions": "Select the permissions for **{admin}** using the dropdown menu below.",
+					"success": "Permissions for **{admin}** have been updated successfully."
+				},
+				"availablePermissionsField": {
+					"name": "**Available Permissions**",
+					"value": "{permissionsList}"
+				},
+				"updatedPermissionsField": {
+					"name": "- **Updated Permissions**",
+					"value": "{permissionsList}"
+				},
+				"noPermissions": "No permissions assigned"
+			},
+			"selectMenu": {
+				"adminSelect": {
+					"placeholder": "Select an admin to edit their permissions"
+				},
+				"permissionSelect": {
+					"placeholder": "Select permissions for this admin"
+				}
+			},
+			"error": {
+				"noAdmins": "{emoji.1050} No admins found.",
+				"userNotAdmin": "{emoji.1050} Selected user is not an admin."
+			}
+		},
+		"removeAdmin": {
+			"content": {
+				"title": {
+					"base": "### {emoji.1051} Select Admin to Demote",
+					"confirm": "### {emoji.1050} Confirm Demotion",
+					"success": "### {emoji.1004} Admin Removed Successfully",
+					"cancel": "### {emoji.1051} Demotion Canceled"
+				},
+				"description": {
+					"base": "Select an admin from the dropdown menu below to demote them to a regular user.",
+					"confirm": "Are you sure you want to remove **{admin}** admin privileges?",
+					"success": "{admin} has been demoted to a regular user."
+				}
+			},
+			"buttons": {
+				"confirm": "Confirm Demotion",
+				"cancel": "Cancel"
+			},
+			"selectMenu": {
+				"adminSelect": {
+					"placeholder": "Select an admin to remove"
+				}
+			},
+			"error": {
+				"noAdmins": "{emoji.1050} No admins found.",
+				"userNotAdmin": "{emoji.1050} Selected user is not an admin."
+			}
+		},
+		"viewAdmins": {
+			"content": {
+				"title": {
+					"base": "### {emoji.1021} View Admin Details",
+					"selectedAdmin": "### {emoji.1026} Selected Admin",
+					"fullLogs": "{emoji.1021} Full {user} Logs"
+				},
+				"description": "Select an admin from the dropdown menu below to view their details and activity.",
+				"adminInfoField": {
+					"name": "- **Admin Info**",
+					"value": "  - Username: {username}\n  - User ID: {userId}"
+				},
+				"permissionsField": {
+					"name": "- **Permissions**",
+					"value": "{permissionsList}"
+				},
+				"recentActivityField": {
+					"name": "- **Recent Activity**",
+					"value": "{activityList}"
+				},
+				"actionLogsField": {
+					"name": "Action Logs",
+					"value": "{logsList}"
+				},
+				"noPermissions": "No permissions assigned",
+				"noRecentActivity": "No recent activity found.",
+				"noLogsFound": "No logs found."
+			},
+			"buttons": {
+				"viewLogs": "View Full Logs"
+			},
+			"selectMenu": {
+				"placeholder": "Select an admin to view"
+			},
+			"error": {
+				"noAdmins": "{emoji.1050} No admins found.",
+				"userNotAdmin": "{emoji.1050} Selected user is not an admin."
+			}
+		},
+		"migration": {
+			"content": {
+				"title": {
+					"base": "### {emoji.1050} Warning: Database Migration",
+					"processing": "### {emoji.1033} Processing Migration",
+					"success": "### {emoji.1004} Migration Complete",
+					"error": "### {emoji.1050} Migration Failed"
+				},
+				"description": {
+					"base": "**This action will erase all current database data and replace it with data from the uploaded files.**\n- This action cannot be undone! Make sure you have:\n  - A backup of your current database\n  - The correct zip file with old database files\n  - The correct password\nAre you sure you want to proceed?",
+					"processing": "Please wait while we process your database files...\nThis may take a few minutes depending on the size of your data."
+				},
+				"migratedDataField": {
+					"name": "- **Migrated Data**",
+					"value": "  - **Alliances**: {alliancesCount}\n  - **Players**: {playersCount}\n  - **Admins**: {adminsCount}\n  - **ID Channels:** {idChannelsCount}\n  - **Furnace Changes:** {furnaceChangesCount}\n  - **Nickname Changes:** {nicknameChangesCount}"
+				},
+				"cancelled": "{emoji.1051} Migration Cancelled"
+			},
+			"buttons": {
+				"confirm": "Confirm Migration",
+				"cancel": "Cancel"
+			},
+			"modal": {
+				"title": "Database Migration",
+				"fileInput": {
+					"label": "Upload Database Zip File"
+				},
+				"passwordInput": {
+					"label": "Enter Zip Password",
+					"placeholder": "Leave empty if no password"
+				}
+			},
+			"errors": {
+				"noFile": "{emoji.1050} No file uploaded. Please upload a zip file.",
+				"invalidFileType": "{emoji.1050} Invalid file type. Please upload a `.zip` file.",
+				"fileTooLarge": "{emoji.1050} File size exceeds 50 MB limit.",
+				"noPassword": "{emoji.1050} Please enter the zip file password.",
+				"passwordRequired": "{emoji.1050} This zip file is password-protected. Please provide the password.",
+				"wrongPassword": "{emoji.1050} Incorrect password. Please check your password and try again.",
+				"corruptedFile": "{emoji.1050} The uploaded file appears to be corrupted or invalid.",
+				"noDbFiles": "{emoji.1050} No database files found in the zip. Please ensure your zip contains `.db` or `.sqlite` files.",
+				"uploadExpired": "{emoji.1050} Upload session expired. Please start the migration process again."
+			}
+		},
+		"backup": {
+			"mainPage": {
+				"content": {
+					"title": "### {emoji.1037} Data Backup",
+					"description": "Create and manage backups of your bot's data using Google Drive.",
+					"createBackupField": {
+						"name": "- **Create Backup**",
+						"value": "  - Set up Google Drive and create a backup of your current database. Daily automatic backups will be created at 00:00 UTC once setup is complete."
+					},
+					"viewBackupsField": {
+						"name": "- **View Backups**",
+						"value": "  - View a list of your existing backups stored on Google Drive."
+					},
+					"restoreBackupField": {
+						"name": "- **Restore Backup**",
+						"value": "  - Restore your database from a selected backup. A safety backup of your current database will be created before restoring."
+					},
+					"resetOAuthField": {
+						"name": "- **Reset Google Drive OAuth**",
+						"value": "  - Reset your Google Drive authorization. Use this if you want to connect a different Google Drive account or if you encounter issues with the current connection."
+					}
+				},
+				"buttons": {
+					"create": "Create Backup",
+					"view": "View Backups",
+					"restore": "Restore Backup",
+					"resetOAuth": "Reset OAuth"
+				}
+			},
+			"backupCreate": {
+				"content": {
+					"title": {
+						"base": "### {emoji.1004} Set Up OAuth",
+						"auth": "### {emoji.1020} Authorization Bot",
+						"success": "### {emoji.1004} Google Drive Connected!",
+						"created": "### {emoji.1022} Backup Created Successfully!"
+					},
+					"description": {
+						"base": "Now that you've completed the guide, click the button below to enter your Google Client ID and Secret.",
+						"auth": "Please visit the link below and authorize the bot to access your Google Drive:\n[Click Here to Authorize]({authUrl})\nAfter authorizing, please enter the authorization code you receive in the button below.",
+						"wait": "Please wait while we create your backup and upload it to Google Drive.\nThis may take a few minutes depending on the size of your database.",
+						"success": "Your Google Drive has been successfully connected! You can now create backups of your database. Click the Create Backup button to create your first backup."
+					},
+					"createdField": {
+						"name": "- **Backup Details**",
+						"value": "  - File Name: {backupName}\n  - Created At: {createdAt}\n  - File Size: {fileSize} MB\n  - Google Drive Link: [View Backup]({backupLink})"
+					},
+					"step1": {
+						"title": "### Step 1: Create Google Cloud Project",
+						"description": "Looks like you haven't set up Google Drive integration yet. To get started, you'll need to create a Google Cloud project.\n\nFirst to [Google Cloud Console](<https://console.cloud.google.com>) and click on \"Create or select a project\"",
+						"imageUrl": "https://i.imgur.com/dhZDir2.png"
+					},
+					"step2": {
+						"title": "### Step 2: Create The Project",
+						"description": "Next, click the \"New Project\" button in the top right corner of the popup. Give your project a name and click \"Create\". Once created click on select the project from the list to go to the project dashboard.",
+						"imageUrl": "https://i.imgur.com/DULGp37.png"
+					},
+					"step3": {
+						"title": "### Step 3: Enable Google Drive API",
+						"description": "In the project dashboard, click on \"Go to APIs overview\".\nClick on \"Enable APIs and services\" and search for \"Google Drive API\", then click the \"Enable\" button.",
+						"imageUrl": "https://i.imgur.com/01ngTLB.png"
+					},
+					"step4": {
+						"title": "### Step 4: OAuth Consent Screen",
+						"description": "In the left sidebar, navigate to \"OAuth consent screen\" and click \"Get Started\".\n- Set a name for your app, select your email.\n- For audience choose 'External'.\n- Set your email in Contact Information.\n- Agree to Google API services user data policy. Then click 'Create'."
+					},
+					"step5": {
+						"title": "### Step 5: Create OAuth client ID",
+						"description": "Now click on \"Create OAuth client\", then select Desktop App as the application type and give it a name.\nFinally, click \"Create\" and then make sure to note/copy down your client ID and secret from the popup.",
+						"imageUrl": "https://i.imgur.com/eaKDlEN.png"
+					},
+					"step6": {
+						"title": "### Step 6: Audience Authorization",
+						"description": "Navigate to audience tab and add the email you will use for backups as test user. This will allow you to authorize the bot to access your Google Drive for backups.",
+						"imageUrl": "https://i.imgur.com/R9oX7xy.png"
+					}
+				},
+				"buttons": {
+					"next": "Next Step",
+					"back": "Previous Step",
+					"backToGuide": "Back to Guide",
+					"submit": "Submit Credentials",
+					"authorize": "Authorize Bot"
+				},
+				"modal": {
+					"title": {
+						"base": "Enter Google OAuth Credentials",
+						"auth": "Enter Google Authorization Code"
+					},
+					"clientId": {
+						"label": "Client ID",
+						"placeholder": "Enter your Google OAuth Client ID"
+					},
+					"clientSecret": {
+						"label": "Client Secret",
+						"placeholder": "Enter your Google OAuth Client Secret"
+					},
+					"authCode": {
+						"label": "Authorization Code",
+						"description": "Enter the authorization code you received after authorizing the bot"
+					}
+				},
+				"errors": {
+					"invalidCode": "{emoji.1050} Invalid authorization code format. Make sure you copied the entire code.",
+					"stateNotFound": "{emoji.1050} OAuth state not found. Please start setup again.",
+					"authFailed": "{emoji.1050} **Troubleshooting:**\n1. Make sure the code hasn't expired (copy and submit within 10 minutes)\n2. Check that your Client ID and Secret are correct\n3. Try the setup process again from the beginning\n4. Restart the wizard by clicking 'Create Backup' button again",
+					"noRefreshToken": "{emoji.1050} Authorization failed - no refresh token received. Please try again and make sure you click \"Allow\" to grant access."
+				}
+			},
+			"backupView": {
+				"content": {
+					"title": {
+						"base": "### {emoji.1044} Available Backups",
+						"noBackups": "### {emoji.1044} No Backups Found"
+					},
+					"description": {
+						"base": "Here are your available backups. Click the links to download.",
+						"wait": "Please wait while we retrieve your backups from Google Drive...",
+						"noBackups": "It looks like you don't have any backups yet. Click the 'Create Backup' button to create your first backup or wait for automatic backups to be created."
+					},
+					"backupField": {
+						"name": "{index}. **{backupName}**",
+						"value": "  - {emoji.1005} Created At: {createdAt}\n  - {emoji.1037} File Size: {fileSize} MB\n  - {emoji.1020} Google Drive Link: [View Backup]({backupLink})"
+					},
+					"footer": "Total Backups: {totalBackups} | Auto-delete keeps only 5 most recent backups"
+				},
+				"errors": {
+					"noToken": "{emoji.1050} Google Drive not configured. Please click 'Create Backup' to set up OAuth first.",
+					"setupIncomplete": "{emoji.1050} OAuth setup is incomplete. Please click \"Create Backup\" and complete the authorization."
+				}
+			},
+			"backupRestore": {
+				"content": {
+					"title": {
+						"base": "### {emoji.1044} Select Backup to Restore",
+						"warning": "### {emoji.1050} FINAL WARNING",
+						"success": "### {emoji.1004} Backup Restored Successfully!"
+					},
+					"description": {
+						"base": "**WARNING**: Restoring will replace all current data (except custom emojis)\nSelect a backup below to restore.",
+						"success": "Your database has been restored from the backup.\n Safety backup saved at: Temp folder, it will be deleted automatically after 24 hours.",
+						"wait": "Please wait while we restore your backup...\nThis may take a few minutes depending on the size of the backup."
+					},
+					"backupField": {
+						"name": "{index}. **{backupName}**",
+						"value": "  - {emoji.1005} Created At: {createdAt}\n  - {emoji.1037} File Size: {fileSize} MB"
+					},
+					"warningField": {
+						"name": "- **This will**",
+						"value": "  - Create a safety backup of your current database\n  - Replace all current data with the selected backup (except custom emojis)\n  - This action cannot be undone! Make sure you have a recent backup of your current database before proceeding."
+					},
+					"restartingField": {
+						"name": "- **Bot is restarting automatically**",
+						"value": "  - Please wait a moment for the bot to come back online."
+					},
+					"canceled": "{emoji.1051} Restore cancelled.",
+					"downloading": "{emoji.1030} Downloading backup and preparing to restore...\nThis may take a few minutes depending on the size of the backup.",
+					"restoring": "{emoji.1030} Restoring backup...\nThis may take a few minutes depending on the size of the backup."
+				},
+				"buttons": {
+					"confirm": "Yes, Restore Now",
+					"cancel": "Cancel"
+				},
+				"error": {
+					"noToken": "{emoji.1050} Google Drive not configured. Please click 'Create Backup' to set up OAuth first.",
+					"noBackups": "{emoji.1050} No backups available to restore.",
+					"setupIncomplete": "{emoji.1050} OAuth setup is incomplete. Please click \"Create Backup\" and complete the authorization."
+				}
+			},
+			"resetOAuth": {
+				"content": {
+					"title": {
+						"base": "### {emoji.1050} Reset Google Drive Authorization",
+						"success": "### {emoji.1004} Google Drive Authorization has been Reset"
+					},
+					"description": "This will erase the current Google Drive connection.\nYou'll need to set it up again by clicking 'Create Backup'.",
+					"success": "Click 'Create Backup' to set up again.",
+					"cancelled": "{emoji.1051} Reset cancelled."
+				},
+				"buttons": {
+					"confirm": "Confirm Reset",
+					"cancel": "Cancel"
+				}
+			}
+		},
+		"theme": {
+			"mainPage": {
+				"content": {
+					"title": "### {emoji.1039} Custom Emoji Management",
+					"description": "Manage custom emojis for your bot.",
+					"addPackField": {
+						"name": "- **Create Pack**",
+						"value": "  - create a new custom emoji pack to use in the bot"
+					},
+					"editPackField": {
+						"name": "- **Edit Pack**",
+						"value": "  - Modify an existing custom emoji pack"
+					},
+					"viewPackField": {
+						"name": "- **View Pack**",
+						"value": "  - View all emojis in a pack"
+					},
+					"templateLibraryField": {
+						"name": "- **Template Library**",
+						"value": "  - Share and import emoji packs"
+					},
+					"deletePackField": {
+						"name": "- **Delete Pack**",
+						"value": "  - Delete an existing custom emoji pack from the bot"
+					},
+					"reloadDefaultsField": {
+						"name": "- **Rrestore**",
+						"value": "  - Redownload and fix the default emoji pack"
+					},
+					"activatePackField": {
+						"name": "- **Activate Pack**",
+						"value": "  - Set a custom emoji pack as the active pack for the bot"
+					}
+				},
+				"buttons": {
+					"createPack": "Create Pack",
+					"editPack": "Edit Pack",
+					"viewPack": "View Pack",
+					"templateLibrary": "Template Library",
+					"sharePack": "Share Pack",
+					"uploadPack": "Upload Pack",
+					"deletePack": "Delete Pack",
+					"activatePack": "Activate Pack",
+					"reloadDefaults": "Restore"
+				},
+				"errors": {}
+			},
+			"templateLibrary": {
+				"content": {
+					"title": "### {emoji.1044} Template Library",
+					"shareField": {
+						"name": "- **Share Pack**",
+						"value": "  - Share your custom emoji packs with others"
+					},
+					"uploadField": {
+						"name": "- **Upload Pack**",
+						"value": "  - Upload a custom emoji pack shared by another user"
+					}
+				}
+			},
+			"createPack": {
+				"modal": {
+					"title": "Create Emoji Pack",
+					"nameInput": {
+						"label": "Enter pack name",
+						"placeholder": "Pack Name"
+					}
+				},
+				"errors": {
+					"invalidName": "{emoji.1050} Invalid set name.",
+					"nameExists": "{emoji.1050} A pack with that name already exists.",
+					"slotsNotEnough": "{emoji.1050} Not enough emoji slots available (Need: {required}, Available: {available}).",
+					"limitReached": "{emoji.1050} Emoji slot limit reached! Please remove emojis before adding more."
+				}
+			},
+			"editPack": {
+				"content": {
+					"title": "### {emoji.1008} Select Pack to Edit"
+				},
+				"selectMenu": {
+					"packSelect": {
+						"placeholder": "Select an emoji to edit",
+						"description": {
+							"active": "Active Global pack",
+							"inactive": "Inactive pack"
+						}
+					}
+				},
+				"errors": {
+					"noPacks": "{emoji.1050} No custom emoji packs found. Create one first!",
+					"packNotFound": "{emoji.1050} Pack not found."
+				}
+			},
+			"viewPack": {
+				"content": {
+					"title": "### {emoji.1049} View Emoji Pack",
+					"description": "Select a pack to view all its emojis.",
+					"noPacks": "{emoji.1050} No emoji packs found.",
+					"packDetailsTitle": "### {emoji.1049} Pack: {packName}",
+					"activePackIndicator": "**{emoji.1004} Active Global Pack**",
+					"totalEmojis": "**Total Emojis:** {count}"
+				},
+				"selectMenu": {
+					"placeholder": "Select a pack to view",
+					"description": {
+						"active": "Active Global pack",
+						"inactive": "Inactive pack"
+					}
+				}
+			},
+			"deletePack": {
+				"content": {
+					"title": {
+						"main": "### {emoji.1046} Select Pack to Delete",
+						"confirm": "### {emoji.1050} Confirm Pack Deletion",
+						"deleted": "### {emoji.1004} Pack Deleted Successfully"
+					},
+					"description": {
+						"main": "Are you sure you want to delete this Pack?",
+						"confirm": "This action cannot be undone! Please confirm that you want to delete **{packName}**.",
+						"deleted": "Emoji pack deleted successfully!"
+					},
+					"wait": "{emoji.1030} Deleting pack..."
+				},
+				"buttons": {
+					"confirm": "Confirm Deletion",
+					"cancel": "Cancel"
+				},
+				"selectMenu": {
+					"packSelect": {
+						"placeholder": "Select an emoji pack",
+						"description": {
+							"active": "Active Global pack",
+							"inactive": "Inactive Global pack"
+						}
+					}
+				},
+				"errors": {
+					"noPacks": "{emoji.1050} No custom emoji packs found. Create one first!",
+					"packNotFound": "{emoji.1050} Pack not found."
+				}
+			},
+			"packEditor": {
+				"content": {
+					"title": "### {emoji.1008} Editing Pack: {packName}"
+				},
+				"buttons": {
+					"editEmoji": "Edit",
+					"savePack": "Save"
+				},
+				"modal": {
+					"title": "Edit Emoji",
+					"emojiInput": {
+						"label": "URL / Emoji",
+						"description": "type \\ before custome emojis and copy the resulting text (e.g., `<:emojiName:emojiId>`).",
+						"placeholder": "Paste emoji or URL"
+					},
+					"fileInput": {
+						"label": "Or Upload Image",
+						"description": "Supported formats: PNG, JPEG, GIF, webp. Max file size: 300 KB."
+					}
+				},
+				"errors": {
+					"noEmojiProvided": "{emoji.1050} No emoji or URL provided.",
+					"invalidUrl": "{emoji.1050} Invalid URL format",
+					"disallowedHost": "{emoji.1050} Invalid or disallowed URL host",
+					"invalidFileType": "{emoji.1050} Invalid file type: {contentType}. Only images (PNG, JPEG, GIF, WEBP) are allowed.",
+					"fileTooLarge": "{emoji.1050} File too large: {size}KB. Maximum allowed: 300KB",
+					"fileSizeExceeded": "{emoji.1050} File size exceeded 300KB during download. Aborted at {size}KB",
+					"downloadFailed": "{emoji.1050} Download failed: {error}"
+				}
+			},
+			"exportPack": {
+				"content": {
+					"title": "### {emoji.1018} Export Emoji Pack",
+					"description": "Select an emoji pack to generate a shareable file.",
+					"generatingFile": "{emoji.1030} Generating file for the pack",
+					"exportSuccess": "Successfully created emoji pack file \nDownload and share it with others."
+				},
+				"selectMenu": {
+					"packSelect": {
+						"placeholder": "Select an emoji pack",
+						"description": {
+							"active": "Active Global pack",
+							"inactive": "Inactive pack"
+						}
+					}
+				},
+				"errors": {
+					"noPacks": "{emoji.1050} No custom emoji packs found. Create one first!",
+					"packNotFound": "{emoji.1050} Pack not found.",
+					"exportFailed": "{emoji.1050} Failed to export pack. Please try again."
+				}
+			},
+			"importPack": {
+				"content": {
+					"title": {
+						"main": "### {emoji.1000} Upload Emoji Pack",
+						"success": "### {emoji.1004} Pack Uploaded Successfully"
+					},
+					"description": {
+						"uploadSuccess": "Upload complete!"
+					},
+					"wait": "{emoji.1030} Processing upload..."
+				},
+				"buttons": {
+					"rename": "Rename Pack"
+				},
+				"modal": {
+					"title": {
+						"fileUpload": "Upload Pack File",
+						"rename": "Rename Pack"
+					},
+					"fileInput": {
+						"label": "Emoji Pack File"
+					},
+					"nameInput": {
+						"label": "Pack Name",
+						"placeholder": "Enter a name for this emoji pack"
+					}
+				},
+				"errors": {
+					"slotsNotEnough": "{emoji.1050} Not enough emoji slots available (Need: {required}, Available: {available}).",
+					"invalidFile": "{emoji.1050} Invalid file.",
+					"invalidFileType": "{emoji.1050} Invalid file type. Please upload a `.json` file.",
+					"fileTooLarge": "{emoji.1050} File size exceeds the 5 MB limit. Please upload a smaller file.",
+					"missingInfo": "{emoji.1050} Missing required information in the file or no emojis to upload.",
+					"defaultPack": "{emoji.1050} Cannot find the default pack.",
+					"uploadExpired": "{emoji.1050} Upload session expired. Please upload the file again.",
+					"invalidName": "{emoji.1050} Invalid pack name.",
+					"nameExists": "{emoji.1050} A pack with the name already exists. Please rename your pack."
+				}
+			},
+			"activatePack": {
+				"content": {
+					"title": {
+						"main": "### {emoji.1043} Activate Emoji Pack",
+						"success": "### {emoji.1004} Pack Activated Successfully"
+					},
+					"description": {
+						"main": "Activating emoji pack: {packName}\n- Global\n  - Sets the selected pack as active for all admins without a personal selection.\n- Personal\n  - Sets the selected pack as active for you only.",
+						"globalActivated": "{emoji.1004} {packName} is now the globally active emoji pack!",
+						"personalActivated": "{emoji.1004} {packName} is now your personally active emoji pack!"
+					},
+					"activeTag": "Active",
+					"inactiveTag": "Inactive"
+				},
+				"buttons": {
+					"global": "Activate Globally",
+					"personal": "Activate Personally"
+				},
+				"selectMenu": {
+					"packSelect": {
+						"placeholder": "Select an emoji pack"
+					}
+				},
+				"errors": {
+					"packNotFound": "{emoji.1050} Pack not found.",
+					"noPacks": "{emoji.1050} No emoji packs found."
+				}
+			},
+			"reloadDefaults": {
+				"content": {
+					"title": "### {emoji.1033} Reloading Default Pack",
+					"description": "Restoring the default emoji pack. This will redownload the original emojis and fix any issues in the default pack.",
+					"reloading": "{emoji.1030} Reloading default emoji pack... please wait.",
+					"success": "{emoji.1004} Default emoji pack reloaded successfully!"
+				},
+				"buttons": {
+					"confirm": "Confirm Reload",
+					"cancel": "Cancel"
+				},
+				"errors": {
+					"reloadFailed": "{emoji.1050} Failed to reload default pack. Please try again."
+				}
+			}
+		}
+	},
+	"support": {
+		"mainPage": {
+			"content": {
+				"title": "### {emoji.1039} Support",
+				"description": "If you need help with the bot or are experiencing any issues, feel free to ask on our [Discord](https://discord.gg/A7ZVTFd4p9).\nFor emotional and financial support, you can buy me a coffee here: [Buy Me A Coffee](https://buymeacoffee.com/wosland) {emoji.1039}"
+			}
+		}
+	},
+	"processes": {
+		"content": {
+			"title": {
+				"processRecovery": "{emoji.1038} Process Crash Recovery",
+				"autoResume": "{emoji.1004} Process Auto-Resumed"
+			},
+			"description": {
+				"processRecovery": "A process was interrupted by a bot restart and needs your attention.",
+				"autoResume": "Process {processId} was automatically resumed after the timeout period."
+			},
+			"processStatusField": {
+				"name": "Process Status",
+				"value": "- Process ID: {processId}\n- Action: {action}\n- Priority: {priority}\n- Created By: {createdBy}"
+			},
+			"autoResumeField": {
+				"name": "Auto-Resume Timer",
+				"value": "This process will automatically resume in 5 minutes if no action is taken."
+			},
+			"resumingProcess": "Resuming process...",
+			"resumedProcess": "Process resumed and queued for execution.",
+			"cancelingProcess": "Cancelling process...",
+			"canceledProcess": "Process has been canceled."
+		},
+		"buttons": {
+			"resumeProcess": "Resume Process",
+			"cancelProcess": "Cancel Process"
+		},
+		"errors": {
+			"invalidButton": "Invalid button interaction.",
+			"invalidProcessId": "Invalid process ID.",
+			"processNotFound": "Process not found.",
+			"noPermission": "You do not have permission to resume this process."
+		}
+	},
+	"pagination": {
+		"buttons": {
+			"previous": "Previous Page",
+			"next": "Next Page"
+		},
+		"text": {
+			"pageInfo": "Page {current} of {total}"
+		}
+	},
+	"permissions": {
+		"alliance": {
+			"name": "Alliance",
+			"description": "Create/Edit/Delete/Refresh"
+		},
+		"players": {
+			"name": "Players",
+			"description": "Add/Remove/Transfer/Set ID Channel"
+		},
+		"giftCodes": {
+			"name": "Gift Codes",
+			"description": "Add/Delete/Use/List/Toggle Gift Code Channel"
+		},
+		"notifications": {
+			"name": "Notifications",
+			"description": "Create/Edit/Delete/View/Toggle Alarms"
+		},
+		"fullAccess": {
+			"name": "Full Access",
+			"description": "Complete Administrative Access"
+		}
+	},
+	"common": {
+		"notForYou": "{emoji.1050} This interaction is not for you.",
+		"noPermission": "{emoji.1050} You do not have permission to perform this action.",
+		"error": "{emoji.1050} An error occurred. Please try again later.",
+		"furnaceCrystal": "FC"
+	},
+	"logs": {
+		"alliance": {
+			"createdPending": "Created alliance: {allianceName} (pending channel selection)",
+			"setupCompleted": "Completed alliance setup: {allianceName} with channel {channelName} in guild {guildName}",
+			"updatedName": "Updated alliance \"{oldName}\" name to \"{newName}\" (ID: {allianceId})",
+			"updatedChannel": "Updated channel for alliance \"{allianceName}\" to {channelName} ({channelId})",
+			"deleteRequested": "Requested deletion approval for alliance \"{allianceName}\" (ID: {allianceId})",
+			"deleted": "Deleted alliance \"{allianceName}\" (ID: {allianceId}) with {playerCount} players",
+			"deleteDenied": "Denied deletion request for alliance \"{allianceName}\" requested by {requester}"
+		},
+		"players": {
+			"removed": "Removed {count} players from alliance {allianceName} (ID: {allianceId})"
+		},
+		"notification": {
+			"created": "Created {type} notification: {name}",
+			"messageUpdated": "Updated message content for notification: {name}",
+			"embedToggled": "Toggled embed {status} for notification: {name}",
+			"embedUpdated": "Updated embed for notification: {name}",
+			"patternSet": "Set pattern to {patternType} for notification: {name}",
+			"patternCustom": "Set custom pattern for notification: {name}",
+			"repeatSet": "Set repeat to {repeatType} for notification: {name}",
+			"setupCompleted": "Completed notification setup: {name} in channel {channelName}",
+			"timeUpdated": "Updated time for notification: {name} to {newTime}",
+			"exported": "Exported notification template: {name} (ID: {notification_id})",
+			"imported": "Imported notification template: {template_name} as {name} (ID: {notification_id})"
+		},
+		"settings": {
+			"adminAdded": "Promoted user {username} to admin",
+			"adminRemoved": "Removed admin privileges from {username}",
+			"permissionsUpdated": "Updated permissions for admin {username}",
+			"idChannelLinked": "Linked ID channel #{channelName} to alliance {allianceName} ({allianceId})",
+			"idChannelUnlinked": "Unlinked ID channel {channelId} from alliance {allianceId}"
+		}
+	}
+}
