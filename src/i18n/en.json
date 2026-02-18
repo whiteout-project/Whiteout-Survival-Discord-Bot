@@ -404,11 +404,11 @@
 		"viewPlayers": {
 			"content": {
 				"title": {
-					"base": "### {emoji.1026} Select Alliance"
+					"base": "### {emoji.1026} Select Alliance",
+					"playerList": "### {emoji.1026} Players in {allianceName}"
 				},
 				"description": {
-					"base": "Choose an alliance from the dropdown menu below to view its players.",
-					"playerList": "Showing players in **{allianceName}**"
+					"base": "Choose an alliance from the dropdown menu below to view its players."
 				},
 				"playerField": {
 					"value": "- **{nickname}**\n  - ID: {fid}\n  - Furnace: {furnace}\n  - State: {state}"
