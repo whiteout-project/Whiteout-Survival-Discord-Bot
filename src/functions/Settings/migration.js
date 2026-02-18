@@ -18,7 +18,7 @@ const path = require('path');
 const https = require('https');
 const AdmZip = require('adm-zip');
 const Seven = require('node-7z');
-const sevenBin = require('7zip-bin');
+const { acquire7z } = require('../utility/ensure7zip');
 const Database = require('better-sqlite3');
 const { getAdminLang, assertUserMatches, sendError, updateComponentsV2AfterSeparator } = require('../utility/commonFunctions');
 const { getEmojiMapForAdmin, getComponentEmoji } = require('../utility/emojis');
@@ -144,54 +144,141 @@ async function handleDBMigrationModal(interaction) {
 		const password = interaction.fields.getTextInputValue('zip_password')?.trim() || '';
 
 
-		// Show warning confirmation
-		const confirmButton = new ButtonBuilder()
-			.setCustomId(`db_migration_confirm_${interaction.user.id}`)
-			.setLabel(lang.settings.migration.buttons.confirm)
-			.setStyle(ButtonStyle.Danger)
-			.setEmoji(getComponentEmoji(getEmojiMapForAdmin(interaction.user.id), '1050'));
+		// Before showing confirm/cancel, validate the uploaded zip (download + attempt extraction)
+		const tempDir = path.join(__dirname, '../../../temp');
+		await fs.promises.mkdir(tempDir, { recursive: true });
+		const tempZipPath = path.join(tempDir, `migration_test_${Date.now()}_${Math.random().toString(36).slice(2,8)}.zip`);
 
-		const cancelButton = new ButtonBuilder()
-			.setCustomId(`db_migration_cancel_${interaction.user.id}`)
-			.setLabel(lang.settings.migration.buttons.cancel)
-			.setStyle(ButtonStyle.Secondary)
-			.setEmoji(getComponentEmoji(getEmojiMapForAdmin(interaction.user.id), '1051'));
+		try {
+			await downloadFile(file.url, tempZipPath);
 
-		const buttonRow = new ActionRowBuilder().addComponents(confirmButton, cancelButton);
+			const testExtractPath = path.join(tempDir, `migration_test_${Date.now()}_${Math.random().toString(36).slice(2,8)}`);
+			await fs.promises.mkdir(testExtractPath, { recursive: true });
 
-		// Store file URL and password temporarily
-		const tempId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-		if (!global.pendingDBMigrations) global.pendingDBMigrations = new Map();
-		global.pendingDBMigrations.set(tempId, {
-			fileUrl: file.url,
-			password: password,
-			userId: interaction.user.id,
-			expiresAt: Date.now() + 5 * 60 * 1000 // 5 minutes
-		});
+			// Try to extract using 7-Zip (preferred) or AdmZip fallback
+			let extractionError = null;
+			try {
+				const { binPath, cleanupPath } = await acquire7z(tempDir);
+				if (!binPath) throw new Error('7z-not-available');
 
-		// Store tempId for confirmation
-		confirmButton.setCustomId(`db_migration_confirm_${tempId}_${interaction.user.id}`);
+				const sevenStream = Seven.extractFull(tempZipPath, testExtractPath, {
+					$bin: binPath,
+					password: password || undefined,
+					recursive: true
+				});
 
-		const container = [
-			new ContainerBuilder()
-				.setAccentColor(0xe74c3c)
-				.addTextDisplayComponents(
-					new TextDisplayBuilder().setContent(
-						`${lang.settings.migration.content.title.base}\n` +
-						`${lang.settings.migration.content.description.base}`
+				await new Promise((resolve, reject) => {
+					sevenStream.on('end', resolve);
+					sevenStream.on('error', (err) => reject(err));
+				});
+
+				if (cleanupPath) await fs.promises.unlink(cleanupPath).catch(() => {});
+			} catch (err) {
+				extractionError = err;
+			}
+
+			// If 7-Zip failed, try AdmZip when not encrypted (AdmZip cannot handle encrypted zips)
+			if (extractionError) {
+				try {
+					const adm = new AdmZip(tempZipPath);
+					adm.extractAllTo(testExtractPath, true);
+					extractionError = null;
+				} catch (admErr) {
+					// keep extractionError
+				}
+			}
+
+			// List extracted files and look for DB files
+			const extracted = await listFilesRecursive(testExtractPath).catch(() => []);
+			const foundDbFiles = extracted.filter(n => n.endsWith('.db') || n.endsWith('.sqlite'));
+
+			// If extraction failed or no DB files found, treat as wrong password / corrupted archive
+			if (extractionError || foundDbFiles.length === 0) {
+				await fs.promises.unlink(tempZipPath).catch(() => {});
+				await fs.promises.rm(testExtractPath, { recursive: true, force: true }).catch(() => {});
+
+				const errorContainer = [
+					new ContainerBuilder()
+						.setAccentColor(0xe74c3c)
+						.addTextDisplayComponents(
+							new TextDisplayBuilder().setContent(
+								`${lang.settings.migration.content.title.error}\n` +
+								`${lang.settings.migration.errors.wrongPassword}`
+							)
+						)
+				];
+				const errorContent = updateComponentsV2AfterSeparator(interaction, errorContainer);
+				return await interaction.update({ components: errorContent, flags: MessageFlags.IsComponentsV2 });
+			}
+
+			// Validation passed - remove test artifacts and proceed to show confirmation
+			await fs.promises.unlink(tempZipPath).catch(() => {});
+			await fs.promises.rm(testExtractPath, { recursive: true, force: true }).catch(() => {});
+
+			// Show warning confirmation
+			const confirmButton = new ButtonBuilder()
+				.setCustomId(`db_migration_confirm_${interaction.user.id}`)
+				.setLabel(lang.settings.migration.buttons.confirm)
+				.setStyle(ButtonStyle.Danger)
+				.setEmoji(getComponentEmoji(getEmojiMapForAdmin(interaction.user.id), '1050'));
+
+			const cancelButton = new ButtonBuilder()
+				.setCustomId(`db_migration_cancel_${interaction.user.id}`)
+				.setLabel(lang.settings.migration.buttons.cancel)
+				.setStyle(ButtonStyle.Secondary)
+				.setEmoji(getComponentEmoji(getEmojiMapForAdmin(interaction.user.id), '1051'));
+
+			const buttonRow = new ActionRowBuilder().addComponents(confirmButton, cancelButton);
+
+			// Store file URL and password temporarily
+			const tempId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+			if (!global.pendingDBMigrations) global.pendingDBMigrations = new Map();
+			global.pendingDBMigrations.set(tempId, {
+				fileUrl: file.url,
+				password: password,
+				userId: interaction.user.id,
+				expiresAt: Date.now() + 5 * 60 * 1000 // 5 minutes
+			});
+
+			// Store tempId for confirmation
+			confirmButton.setCustomId(`db_migration_confirm_${tempId}_${interaction.user.id}`);
+
+			const container = [
+				new ContainerBuilder()
+					.setAccentColor(0xe74c3c)
+					.addTextDisplayComponents(
+						new TextDisplayBuilder().setContent(
+							`${lang.settings.migration.content.title.base}\n` +
+							`${lang.settings.migration.content.description.base}`
+						)
 					)
-				)
-				.addSeparatorComponents(
-					new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true)
-				)
-				.addActionRowComponents(buttonRow)
-		];
+					.addSeparatorComponents(
+						new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true)
+					)
+					.addActionRowComponents(buttonRow)
+			];
 
-		const content = updateComponentsV2AfterSeparator(interaction, container);
-		await interaction.update({
-			components: content,
-			flags: MessageFlags.IsComponentsV2
-		});
+			const content = updateComponentsV2AfterSeparator(interaction, container);
+			return await interaction.update({
+				components: content,
+				flags: MessageFlags.IsComponentsV2
+			});
+		} catch (err) {
+			// Download or validation failed
+			await fs.promises.unlink(tempZipPath).catch(() => {});
+			const errorContainer = [
+				new ContainerBuilder()
+					.setAccentColor(0xe74c3c)
+					.addTextDisplayComponents(
+						new TextDisplayBuilder().setContent(
+							`${lang.settings.migration.content.title.error}\n` +
+							`${lang.settings.migration.errors.corruptedFile}`
+						)
+					)
+			];
+			const errorContent = updateComponentsV2AfterSeparator(interaction, errorContainer);
+			return await interaction.update({ components: errorContent, flags: MessageFlags.IsComponentsV2 });
+		}
 	} catch (error) {
 		await sendError(interaction, lang, error, 'handleDBMigrationModal');
 	}
@@ -332,11 +419,17 @@ async function handleDBMigrationConfirm(interaction) {
 				// console.log(`[MIGRATION] Extracting zip to: ${extractPath} (password provided: ${pending.password ? 'YES' : 'NO'})`);
 				await fs.promises.mkdir(extractPath, { recursive: true });
 
-				// Try 7-Zip first
+				// Try 7-Zip first (use shared helper; helper may return a temporary copy path to clean up)
 				let sevenError = null;
 				try {
+					const { binPath, cleanupPath } = await acquire7z(tempDir);
+					if (!binPath) {
+						sevenError = new Error('7-Zip binary not available or not executable');
+						throw sevenError;
+					}
+
 					const sevenStream = Seven.extractFull(tempZipPath, extractPath, {
-						$bin: sevenBin.path7za,
+						$bin: binPath,
 						password: pending.password || undefined,
 						recursive: true
 					});
@@ -346,9 +439,12 @@ async function handleDBMigrationConfirm(interaction) {
 						sevenStream.on('error', (err) => reject(err));
 					});
 
-					// console.log('[MIGRATION] Extraction completed with 7-Zip');
+					// cleanup copied binary (if helper created one)
+					if (cleanupPath) {
+						fs.promises.unlink(cleanupPath).catch(() => { });
+					}
 				} catch (err) {
-					sevenError = err;
+					if (!sevenError) sevenError = err;
 					console.error('[MIGRATION] 7-Zip extraction failed:', err && err.message ? err.message : err);
 				}
 
@@ -363,10 +459,6 @@ async function handleDBMigrationConfirm(interaction) {
 					} catch (admErr) {
 						console.error('[MIGRATION] AdmZip fallback extraction failed:', admErr && admErr.message ? admErr.message : admErr);
 					}
-				}
-
-				if (sevenError) {
-					throw sevenError;
 				}
 			} catch (extractError) {
 
@@ -445,6 +537,50 @@ async function handleDBMigrationConfirm(interaction) {
 				});
 			}
 
+			// Validate extracted DBs: ensure they contain at least one table
+			try {
+				let allEmpty = true;
+				for (const f of dbFiles) {
+					try {
+						const testDb = new Database(f.path, { readonly: true });
+						const tables = testDb.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").all();
+						testDb.close();
+						if (tables && tables.length > 0) {
+							allEmpty = false;
+							break;
+						}
+					} catch (e) {
+						// invalid sqlite or cannot open => treat as empty
+					}
+				}
+
+				if (allEmpty) {
+					// Likely wrong password or corrupted archive
+					await fs.promises.unlink(tempZipPath).catch(() => {});
+					await fs.promises.rm(extractPath, { recursive: true, force: true }).catch(() => {});
+					global.pendingDBMigrations.delete(tempId);
+
+					const errorContainer = [
+						new ContainerBuilder()
+							.setAccentColor(0xe74c3c)
+							.addTextDisplayComponents(
+								new TextDisplayBuilder().setContent(
+									`${lang.settings.migration.content.title.error}\n` +
+									`${lang.settings.migration.errors.wrongPassword}`
+								)
+							)
+					];
+					const errorContent = updateComponentsV2AfterSeparator(interaction, errorContainer);
+					return await interaction.editReply({
+						components: errorContent,
+						flags: MessageFlags.IsComponentsV2
+					});
+				}
+			} catch (e) {
+				// If validation itself fails, log and continue to let later logic handle it
+				console.error('[MIGRATION] DB validation check failed:', e && e.message ? e.message : e);
+			}
+
 			// Perform migration
 			const migrationResult = await performMigration(dbFiles, extractPath, interaction.user.id);
 
@@ -484,7 +620,7 @@ async function handleDBMigrationConfirm(interaction) {
 						.setAccentColor(0xe74c3c)
 						.addTextDisplayComponents(
 							new TextDisplayBuilder().setContent(
-								`${lang.settings.migration.content.error.title}\n` +
+								`${lang.settings.migration.content.title.error}\n` +
 								`${migrationResult.error}`
 							)
 						)
@@ -763,7 +899,7 @@ async function migratePlayers(usersPath, allianceIdMap, ownerId) {
 
 			// Skip if alliance doesn't exist in new DB
 			if (!newAllianceId) {
-				console.warn(`Skipping player ${old.fid}: Alliance ${oldAllianceId} not found`);
+				// console.warn(`Skipping player ${old.fid}: Alliance ${oldAllianceId} not found`);
 				continue;
 			}
 

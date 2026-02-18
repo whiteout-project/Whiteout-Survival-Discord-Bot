@@ -6,8 +6,6 @@ const { getAuthenticatedDriveClient } = require('./backupCreate');
 const { findOrCreateBackupFolder, listBackupFiles } = require('./backupView');
 const path = require('path');
 const fs = require('fs');
-const sevenBin = require('7zip-bin');
-const node7z = require('node-7z');
 const Database = require('better-sqlite3');
 
 /**
