@@ -377,7 +377,7 @@ async function handlePlayerIdModal(interaction) {
         });
 
         // Create response embed with progress tracking (no existing players to show yet)
-        const responseEmbed = createProcessResponseEmbed(processResult, { status: 'queued' }, alliance, lang, []);
+        const responseEmbed = createProcessResponseEmbed(processResult, { status: 'queued' }, alliance, lang, interaction.user.id, []);
 
         // Get the alliance's configured channel from database
         // If no channel is configured, fall back to interaction channel
@@ -476,20 +476,20 @@ function sanitizePlayerIds(rawInput) {
  * @param {Array} existingPlayers - Array of existing players (optional)
  * @returns {EmbedBuilder} Response embed
  */
-function createProcessResponseEmbed(processResult, queueResult, alliance, lang, existingPlayers = []) {
+function createProcessResponseEmbed(processResult, queueResult, alliance, lang, userId, existingPlayers = []) {
     const playerCount = processResult.player_ids ? processResult.player_ids.split(',').length : 0;
 
     let color = "#3498db"; // Default blue
-    let statusEmoji = getComponentEmoji(getEmojiMapForAdmin(interaction.user.id), '1021');
+    let statusEmoji = getComponentEmoji(getEmojiMapForAdmin(userId), '1021');
     let statusMessage = lang.players.addPlayer.content.status.queued;
 
     if (queueResult.status === 'active') {
         color = "#00ff00"; // Green
-        statusEmoji = getComponentEmoji(getEmojiMapForAdmin(interaction.user.id), '1035');
+        statusEmoji = getComponentEmoji(getEmojiMapForAdmin(userId), '1035');
         statusMessage = lang.players.addPlayer.content.status.active;
     } else if (queueResult.status === 'queue') {
         color = "#ffa500"; // Orange
-        statusEmoji = getComponentEmoji(getEmojiMapForAdmin(interaction.user.id), '1021');
+        statusEmoji = getComponentEmoji(getEmojiMapForAdmin(userId), '1021');
         statusMessage = lang.players.addPlayer.content.status.queued;
     }
 

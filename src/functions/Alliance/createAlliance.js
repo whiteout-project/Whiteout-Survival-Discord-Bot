@@ -393,7 +393,8 @@ async function updateAdminAlliances(allianceId, creatorAdminData) {
         }
 
     } catch (error) {
-        await sendError(interaction, lang, error, 'updateAdminAlliances', false);
+        error.message = `${error.message} | context: allianceId=${allianceId}, adminUserId=${creatorAdminData?.user_id}`;
+        await sendError(null, null, error, 'updateAdminAlliances', false);
     }
 }
 
