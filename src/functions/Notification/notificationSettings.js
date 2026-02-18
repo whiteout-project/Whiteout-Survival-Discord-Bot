@@ -1130,7 +1130,8 @@ async function showFinalConfirmation(interaction, notificationId, channel, lang)
         .setColor(0x57f287) // Green
         .setTimestamp();
 
-    const embeds = [previewEmbed];
+    // previewEmbed - looks better without it.
+    const embeds = [];
     if (notificationEmbed) {
         embeds.push(notificationEmbed);
     }

@@ -377,7 +377,7 @@ async function handlePlayerIdModal(interaction) {
         });
 
         // Create response embed with progress tracking (no existing players to show yet)
-        const responseEmbed = createProcessResponseEmbed(processResult, { status: 'queued' }, alliance, lang, []);
+        const responseEmbed = createProcessResponseEmbed(processResult, { status: 'queued' }, alliance, lang, interaction, []);
 
         // Get the alliance's configured channel from database
         // If no channel is configured, fall back to interaction channel
@@ -473,10 +473,11 @@ function sanitizePlayerIds(rawInput) {
  * @param {Object} queueResult - Queue management result
  * @param {Object} alliance - Alliance object
  * @param {Object} lang - Language object
+ * @param {Object} interaction - Interaction object
  * @param {Array} existingPlayers - Array of existing players (optional)
  * @returns {EmbedBuilder} Response embed
  */
-function createProcessResponseEmbed(processResult, queueResult, alliance, lang, existingPlayers = []) {
+function createProcessResponseEmbed(processResult, queueResult, alliance, lang, interaction, existingPlayers = []) {
     const playerCount = processResult.player_ids ? processResult.player_ids.split(',').length : 0;
 
     let color = "#3498db"; // Default blue

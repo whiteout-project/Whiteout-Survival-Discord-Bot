@@ -280,7 +280,13 @@ function getAvailableLanguages(userId) {
             value: 'en',
             emoji: emojiMap['1047'] || '🇬🇧', // Use full emoji string for text display
             description: 'English'
-        }
+        },
+        {
+            label: 'Français',
+            value: 'fr',
+            emoji: emojiMap['1010'] || '🇫🇷',
+            description: 'French'
+        },
     ];
     return languageOptions;
 }

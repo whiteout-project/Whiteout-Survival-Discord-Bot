@@ -1,3 +1,4 @@
 node_modules/
 src/.env
 src/database/
+package-lock.json
