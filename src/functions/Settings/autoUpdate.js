@@ -10,7 +10,6 @@ const {
 } = require('discord.js');
 const { getAdminLang, sendError, assertUserMatches, updateComponentsV2AfterSeparator } = require('../utility/commonFunctions');
 const { getComponentEmoji, getEmojiMapForAdmin } = require('../utility/emojis');
-const { container } = require('googleapis/build/src/apis/container');
 
 /**
  * Creates an auto-update button for the settings panel
@@ -22,7 +21,7 @@ function createAutoUpdateButton(userId, lang) {
     return new ButtonBuilder()
         .setCustomId(`auto_update_check_${userId}`)
         .setLabel(lang.settings.mainPage.buttons.autoUpdate)
-        .setStyle(ButtonStyle.Primary)
+        .setStyle(ButtonStyle.Secondary)
         .setEmoji(getComponentEmoji(getEmojiMapForAdmin(userId), '1033'));
 }
 

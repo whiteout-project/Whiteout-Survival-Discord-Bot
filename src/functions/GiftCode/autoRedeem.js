@@ -107,7 +107,7 @@ async function displayToggleAutoRedeemPage(interaction, allAlliances, page, lang
     const allianceSelect = new StringSelectMenuBuilder()
         .setCustomId(`toggle_auto_redeem_select_${interaction.user.id}_${page}`)
         .setPlaceholder(lang.giftCode.autoRedeem.selectMenu.selectAlliances.placeholder)
-        .setMaxValues(24) // Allow selecting up to 24 alliances (max per page)
+        .setMaxValues(selectOptions.length) // Cannot exceed the number of available options
         .addOptions(selectOptions);
 
     const selectRow = new ActionRowBuilder().addComponents(allianceSelect);

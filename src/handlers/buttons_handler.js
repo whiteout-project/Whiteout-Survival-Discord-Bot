@@ -29,6 +29,7 @@ const addPlayer = require('../functions/Players/addPlayer');
 const fetchPlayerData = require('../functions/Players/fetchPlayerData');
 const movePlayers = require('../functions/Players/movePlayers');
 const removePlayers = require('../functions/Players/removePlayers');
+const viewPlayers = require('../functions/Players/viewPlayers');
 const idChannel = require('../functions/Players/idChannel');
 const exportPlayers = require('../functions/Players/export');
 
@@ -193,6 +194,11 @@ const buttonHandlers = [
     { pattern: /^remove_players_confirm_/, fn: removePlayers.handleRemovePlayersConfirm },
     { pattern: /^remove_players_cancel_/, fn: removePlayers.handleRemovePlayersCancel },
     { pattern: /^remove_players_(?!alliance_|player_|select_|confirm_|cancel_|done_|add_ids_)/, fn: removePlayers.handleRemovePlayersButton },
+
+    // View players
+    { pattern: /^(view_players_alliance_prev_|view_players_alliance_next_)/, fn: viewPlayers.handleViewPlayersAlliancePagination },
+    { pattern: /^(view_players_player_prev_|view_players_player_next_)/, fn: viewPlayers.handleViewPlayersPlayerPagination },
+    { pattern: /^view_players_(?!alliance_|player_)/, fn: viewPlayers.handleViewPlayersButton },
 
     // Export players
     { pattern: /^export_panel_/, fn: exportPlayers.showExportPanel },

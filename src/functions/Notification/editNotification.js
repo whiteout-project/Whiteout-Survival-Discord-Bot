@@ -10,7 +10,7 @@ const {
     StringSelectMenuBuilder,
     EmbedBuilder
 } = require('discord.js');
-const { adminQueries, notificationQueries, adminLogQueries } = require('../utility/database');
+const { notificationQueries, adminLogQueries } = require('../utility/database');
 const { LOG_CODES } = require('../utility/AdminLogs');
 const { PERMISSIONS } = require('../Settings/admin/permissions');
 const { notificationScheduler } = require('./notificationScheduler');
@@ -22,54 +22,13 @@ const { getEmojiMapForAdmin, getComponentEmoji } = require('../utility/emojis');
 const ITEMS_PER_PAGE = 20;
 
 /**
- * Get filtered notifications by type and permissions
- * @param {string} type - 'server' or 'private'
- * @param {string} userId - User ID for permission filtering
- * @param {Object} adminData - Admin data with permissions
- * @param {string} guildId - Guild ID for server notification filtering
- * @returns {Array} Filtered notifications
- */
-function getFilteredNotifications(type, userId, adminData, guildId = null) {
-    // Get all notifications first
-    let notifications = notificationQueries.getAllNotifications();
-
-    // Filter out incomplete notifications
-    notifications = notifications.filter(n => n.completed === 1);
-
-    // Filter by type
-    if (type === 'server') {
-        notifications = notifications.filter(n => n.guild_id !== null);
-        // Filter by current guild only for server notifications
-        if (guildId) {
-            notifications = notifications.filter(n => n.guild_id === guildId);
-        }
-    } else if (type === 'private') {
-        notifications = notifications.filter(n => n.guild_id === null);
-    }
-
-    // Apply permission filtering based on type
-    if (type === 'private') {
-        // Private notifications: only show user's own, regardless of permission level
-        notifications = notifications.filter(n => n.created_by === userId);
-    } else if (type === 'server') {
-        // Server notifications: show all if user has notification permission
-        const hasNotificationAccess = hasPermission(adminData, PERMISSIONS.FULL_ACCESS, PERMISSIONS.NOTIFICATIONS_MANAGEMENT);
-        if (!hasNotificationAccess) {
-            notifications = notifications.filter(n => n.created_by === userId);
-        }
-    }
-
-    return notifications;
-}
-
-/**
  * Create the edit notification button
  */
 function createEditNotificationButton(userId, lang) {
     return new ButtonBuilder()
         .setCustomId(`notification_edit_main_${userId}`)
         .setLabel(lang.notification.editNotification.buttons.editNotification)
-        .setStyle(ButtonStyle.Primary)
+        .setStyle(ButtonStyle.Secondary)
         .setEmoji(getComponentEmoji(getEmojiMapForAdmin(userId), '1008'));
 }
 
@@ -920,6 +879,47 @@ async function handleSaveButton(interaction) {
     } catch (error) {
         await sendError(interaction, lang, error, 'handleSaveButton');
     }
+}
+
+/**
+ * Get filtered notifications by type and permissions
+ * @param {string} type - 'server' or 'private'
+ * @param {string} userId - User ID for permission filtering
+ * @param {Object} adminData - Admin data with permissions
+ * @param {string} guildId - Guild ID for server notification filtering
+ * @returns {Array} Filtered notifications
+ */
+function getFilteredNotifications(type, userId, adminData, guildId = null) {
+    // Get all notifications first
+    let notifications = notificationQueries.getAllNotifications();
+
+    // Filter out incomplete notifications
+    notifications = notifications.filter(n => n.completed === 1);
+
+    // Filter by type
+    if (type === 'server') {
+        notifications = notifications.filter(n => n.guild_id !== null);
+        // Filter by current guild only for server notifications
+        if (guildId) {
+            notifications = notifications.filter(n => n.guild_id === guildId);
+        }
+    } else if (type === 'private') {
+        notifications = notifications.filter(n => n.guild_id === null);
+    }
+
+    // Apply permission filtering based on type
+    if (type === 'private') {
+        // Private notifications: only show user's own, regardless of permission level
+        notifications = notifications.filter(n => n.created_by === userId);
+    } else if (type === 'server') {
+        // Server notifications: show all if user has notification permission
+        const hasNotificationAccess = hasPermission(adminData, PERMISSIONS.FULL_ACCESS, PERMISSIONS.NOTIFICATIONS_MANAGEMENT);
+        if (!hasNotificationAccess) {
+            notifications = notifications.filter(n => n.created_by === userId);
+        }
+    }
+
+    return notifications;
 }
 
 module.exports = {

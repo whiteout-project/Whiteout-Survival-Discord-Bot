@@ -31,7 +31,7 @@ function createRemovePlayersButton(userId, lang = {}) {
     return new ButtonBuilder()
         .setCustomId(`remove_players_${userId}`)
         .setLabel(lang.players.mainPage.buttons.removePlayers)
-        .setStyle(ButtonStyle.Danger)
+        .setStyle(ButtonStyle.Secondary)
         .setEmoji(getComponentEmoji(getEmojiMapForAdmin(userId), '1046'));
 }
 

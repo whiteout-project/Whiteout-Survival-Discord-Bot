@@ -8,6 +8,7 @@ const viewAlliances = require('../functions/Alliance/viewAlliances');
 const addPlayer = require('../functions/Players/addPlayer');
 const movePlayers = require('../functions/Players/movePlayers');
 const removePlayers = require('../functions/Players/removePlayers');
+const viewPlayers = require('../functions/Players/viewPlayers');
 const idChannel = require('../functions/Players/idChannel');
 const exportPlayers = require('../functions/Players/export');
 const redeemGift = require('../functions/GiftCode/redeemGift');
@@ -64,6 +65,9 @@ const dropdownHandlers = [
     // Remove players selections
     { type: 'string', pattern: /^remove_players_alliance_select_/, fn: removePlayers.handleRemovePlayersAllianceSelection },
     { type: 'string', pattern: /^remove_players_player_select_/, fn: removePlayers.handleRemovePlayersPlayerSelection },
+
+    // View players selections
+    { type: 'string', pattern: /^view_players_alliance_select_/, fn: viewPlayers.handleViewPlayersAllianceSelection },
 
     // Export players selections
     { type: 'string', pattern: /^export_state_select_/, fn: exportPlayers.handleStateSelection },

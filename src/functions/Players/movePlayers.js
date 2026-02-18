@@ -30,7 +30,7 @@ function createMovePlayersButton(userId, lang = {}) {
     return new ButtonBuilder()
         .setCustomId(`move_players_${userId}`)
         .setLabel(lang.players.mainPage.buttons.movePlayers)
-        .setStyle(ButtonStyle.Primary)
+        .setStyle(ButtonStyle.Secondary)
         .setEmoji(getComponentEmoji(getEmojiMapForAdmin(userId), '1033'));
 }
 

@@ -4,6 +4,7 @@ const { createBackToPanelButton } = require('../Panel/backToPanel');
 const { createAddPlayerButton } = require('./addPlayer');
 const { createMovePlayersButton } = require('./movePlayers');
 const { createRemovePlayersButton } = require('./removePlayers');
+const { createViewPlayersButton } = require('./viewPlayers');
 const { createIdChannelButton } = require('./idChannel');
 const { createExportButton } = require('./export');
 const { getAdminLang, assertUserMatches, sendError, hasPermission } = require('../utility/commonFunctions');
@@ -53,6 +54,7 @@ async function handlePlayerManagementButton(interaction) {
             .addComponents(
                 createAddPlayerButton(interaction.user.id, lang),
                 createMovePlayersButton(interaction.user.id, lang),
+                createViewPlayersButton(interaction.user.id, lang),
                 createRemovePlayersButton(interaction.user.id, lang)
             );
 

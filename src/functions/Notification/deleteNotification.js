@@ -25,7 +25,7 @@ function createDeleteNotificationButton(userId, lang) {
     return new ButtonBuilder()
         .setCustomId(`notification_delete_${userId}`)
         .setLabel(lang.notification.deleteNotification.buttons.deleteNotification)
-        .setStyle(ButtonStyle.Danger)
+        .setStyle(ButtonStyle.Secondary)
         .setEmoji(getComponentEmoji(getEmojiMapForAdmin(userId), '1046'));
 }
 

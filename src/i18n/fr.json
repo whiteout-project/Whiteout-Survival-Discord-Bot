@@ -38,42 +38,42 @@
         }
     },
     "alliance": {
-            "mainPage": {
-                "content": {
-                    "title": "### {emoji.1001} Alliances",
-                    "description": "Créer et gérer vos alliances",
-                    "createAllianceField": {
-                        "name": "- **Créer une alliance**",
-                        "value": "  - Créer une nouvelle alliance pour ajouter des membres"
-                    },
-                    "editAllianceField": {
-                        "name": "- **Modifier une alliance**",
-                        "value": "  - Modifier les paramètres de l'alliance"
-                    },
-                    "deleteAllianceField": {
-                        "name": "- **Supprimer une alliance**",
-                        "value": "  - Supprimer l'alliance et tous ses membres"
-                    },
-                    "viewAlliancesField": {
-                        "name": "- **Voir les alliances**",
-                        "value": "  - Voir toutes les alliances avec les détails"
-                    },
-                    "editPriorityField": {
-                        "name": "- **Modifier la priorité**",
-                        "value": "  - Gérer l'ordre de priorité des alliances"
-                    }
+        "mainPage": {
+            "content": {
+                "title": "### {emoji.1001} Alliances",
+                "description": "Créer et gérer vos alliances",
+                "createAllianceField": {
+                    "name": "- **Créer une alliance**",
+                    "value": "  - Créer une nouvelle alliance pour ajouter des membres"
                 },
-                "buttons": {
-                    "createAlliance": "Créer",
-                    "editAlliance": "Modifier",
-                    "deleteAlliance": "Supprimer",
-                    "viewAlliances": "Voir",
-                    "editPriority": "Priorité",
-                    "assignAlliance": "Assigner",
-                    "manualRefresh": "Rafraîchir"
+                "editAllianceField": {
+                    "name": "- **Modifier une alliance**",
+                    "value": "  - Modifier les paramètres de l'alliance"
                 },
-                "errors": {}
+                "deleteAllianceField": {
+                    "name": "- **Supprimer une alliance**",
+                    "value": "  - Supprimer l'alliance et tous ses membres"
+                },
+                "viewAlliancesField": {
+                    "name": "- **Voir les alliances**",
+                    "value": "  - Voir toutes les alliances avec les détails"
+                },
+                "editPriorityField": {
+                    "name": "- **Modifier la priorité**",
+                    "value": "  - Gérer l'ordre de priorité des alliances"
+                }
             },
+            "buttons": {
+                "createAlliance": "Créer",
+                "editAlliance": "Modifier",
+                "deleteAlliance": "Supprimer",
+                "viewAlliances": "Voir",
+                "editPriority": "Priorité",
+                "assignAlliance": "Assigner",
+                "manualRefresh": "Rafraîchir"
+            },
+            "errors": {}
+        },
         "createAlliance": {
             "content": {
                 "title": "### {emoji.1021} Alliance créée",
@@ -368,7 +368,7 @@
     "players": {
         "mainPage": {
             "content": {
-                "title": "### {emoji.1026} Joueurs",
+                "title": "### {emoji.1027} Joueurs",
                 "description": "Gérer les joueurs de votre alliance",
                 "addPlayersField": {
                     "name": "- **Ajouter des Joueurs**",
@@ -394,11 +394,40 @@
             "buttons": {
                 "addPlayer": "Ajouter",
                 "movePlayers": "Déplacer",
+                "viewPlayers": "Voir",
                 "removePlayers": "Supprimer",
                 "export": "Exporter",
                 "idChannel": "Canal d'ID"
             },
             "errors": {}
+        },
+        "viewPlayers": {
+            "content": {
+                "title": {
+                    "base": "### {emoji.1026} Sélectionner une Alliance"
+                },
+                "description": {
+                    "base": "Choisissez une alliance dans le menu déroulant ci-dessous pour voir ses joueurs.",
+                    "playerList": "Affichage des joueurs dans **{allianceName}**"
+                },
+                "playerField": {
+                    "value": "- **{nickname}**\n  - ID: {fid}\n  - Fourneau: {furnace}\n  - État: {state}"
+                }
+            },
+            "buttons": {
+                "viewPlayers": "Voir les Joueurs"
+            },
+            "selectMenu": {
+                "allianceSelect": {
+                    "placeholder": "Sélectionnez une alliance pour voir ses joueurs",
+                    "description": "Priorité: {alliancePriority} | Joueurs: {playerCount}"
+                }
+            },
+            "errors": {
+                "noAssignedAlliances": "{emoji.1050} Vous n'êtes assigné à aucune alliance.",
+                "noAvailableAlliances": "{emoji.1050} Aucune alliance avec des joueurs trouvée.",
+                "noPlayersInAlliance": "{emoji.1050} Aucun joueur trouvé dans cette alliance."
+            }
         },
         "addPlayer": {
             "content": {
@@ -990,7 +1019,7 @@
             }
         }
     },
-	"notification": {
+    "notification": {
         "mainPage": {
             "content": {
                 "title": "### {emoji.1022} Notifications",
@@ -2304,8 +2333,8 @@
                     "reloadFailed": "{emoji.1050} Échec du rechargement du pack par défaut. Veuillez réessayer."
                 }
             }
-		}
-	},
+        }
+    },
     "support": {
         "mainPage": {
             "content": {

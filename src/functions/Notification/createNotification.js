@@ -33,7 +33,7 @@ function createNotificationButton(userId, lang) {
     return new ButtonBuilder()
         .setCustomId(`notification_create_${userId}`)
         .setLabel(lang.notification.mainPage.buttons.createNotification)
-        .setStyle(ButtonStyle.Primary)
+        .setStyle(ButtonStyle.Secondary)
         .setEmoji(getComponentEmoji(getEmojiMapForAdmin(userId), '1022'));
 }
 
