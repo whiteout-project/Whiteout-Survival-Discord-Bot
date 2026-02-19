@@ -241,6 +241,7 @@ const buttonHandlers = [
     { pattern: /^notification_edit_content_/, fn: editNotification.handleContentButton },
     { pattern: /^notification_edit_repeat_/, fn: editNotification.handleRepeatButtonFromEdit },
     { pattern: /^notification_edit_pattern_/, fn: editNotification.handlePatternButtonFromEdit },
+    { pattern: /^notification_edit_disable_/, fn: editNotification.handleDisableButton },
     { pattern: /^notification_edit_save_/, fn: editNotification.handleSaveButton },
     { pattern: /^notification_edit_message_/, fn: notificationEditor.handleEditMessageButton },
     { pattern: /^notification_toggle_embed_/, fn: notificationEditor.handleToggleEmbedButton },

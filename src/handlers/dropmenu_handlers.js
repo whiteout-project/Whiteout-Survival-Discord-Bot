@@ -110,7 +110,7 @@ const dropdownHandlers = [
     { type: 'string', pattern: /^notification_field_reorder_from_/, fn: notificationFields.handleReorderFieldsFromSelect },
     { type: 'string', pattern: /^notification_field_reorder_to_/, fn: notificationFields.handleReorderFieldsToSelect },
     { type: 'string', pattern: /^notification_tag_select_/, fn: notificationMentions.handleTagSelection },
-    { type: 'string', pattern: /^notification_delete_select_/, fn: deleteNotification.handleNotificationSelection },
+    { type: 'string', pattern: /^notification_delete_(?:server|private)_select_/, fn: deleteNotification.handleNotificationSelection },
     { type: 'string', pattern: /^notification_edit_select_/, fn: editNotification.handleNotificationSelection },
     { type: 'string', pattern: /^template_export_menu_/, fn: shareNotification.handleNotificationExportSelection },
 

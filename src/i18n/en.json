@@ -1131,8 +1131,8 @@
 				"typePrivate": "Private Notification",
 				"statusActive": "Active",
 				"statusInactive": "Inactive",
-				"repeatEnabled": "Enabled",
-				"repeatDisabled": "Disabled"
+				"enabled": "Enabled",
+				"disabled": "Disabled"
 			},
 			"buttons": {
 				"deleteNotification": "Delete Notification",
@@ -1178,10 +1178,17 @@
 					"directMessage": "Direct Message"
 				},
 				"triggerField": {
-					"name": "Next Trigger"
+					"name": "Next Trigger",
+					"disabled": "none"
 				},
 				"repeatField": {
-					"name": "Repeat"
+					"name": "Repeat",
+					"enabled": "Every {parts}",
+					"days": "{count}d",
+					"hours": "{count}h",
+					"minutes": "{count}m",
+					"seconds": "{count}s",
+					"disabled": "No Repeat"
 				},
 				"patternField": {
 					"name": "Pattern"
@@ -1201,6 +1208,7 @@
 				"content": "Content",
 				"repeat": "Repeat",
 				"pattern": "Pattern",
+				"disable": "Disable",
 				"save": "Save"
 			},
 			"selectMenu": {
@@ -1232,7 +1240,8 @@
 				"invalidDateFormat": "{emoji.1050} Invalid date format. Use DD/MM/YYYY.",
 				"invalidTimeFormat": "{emoji.1050} Invalid time format. Use HH:MM:SS.",
 				"invalidDateTime": "{emoji.1050} Invalid date or time values.",
-				"timeInPast": "{emoji.1050} The trigger time is in the past. Use the **Info** button to set a future trigger time."
+				"timeInPast": "{emoji.1050} The trigger time is in the past. Use the **Info** button to set a future trigger time.",
+				"alreadyDisabled": "{emoji.1050} This notification is already disabled."
 			}
 		},
 		"notificationEditor": {

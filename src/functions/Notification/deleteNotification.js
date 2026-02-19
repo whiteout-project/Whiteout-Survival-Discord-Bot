@@ -282,9 +282,6 @@ async function handleNotificationSelection(interaction) {
  * Show delete confirmation with notification details
  */
 async function showDeleteConfirmation(interaction, notification, lang) {
-    const triggerDate = new Date(notification.next_trigger * 1000);
-    const dateStr = `${triggerDate.getUTCDate()}/${triggerDate.getUTCMonth() + 1}/${triggerDate.getUTCFullYear()} ${String(triggerDate.getUTCHours()).padStart(2, '0')}:${String(triggerDate.getUTCMinutes()).padStart(2, '0')}`;
-
     const typeDisplay = notification.guild_id
         ? lang.notification.deleteNotification.content.typeServer
         : lang.notification.deleteNotification.content.typePrivate;
@@ -294,8 +291,14 @@ async function showDeleteConfirmation(interaction, notification, lang) {
         : lang.notification.deleteNotification.content.statusInactive;
 
     const repeatDisplay = notification.repeat_status
-        ? lang.notification.deleteNotification.content.repeatEnabled
-        : lang.notification.deleteNotification.content.repeatDisabled;
+        ? lang.notification.deleteNotification.content.enabled
+        : lang.notification.deleteNotification.content.disabled;
+    
+    let nextTriggerStr = lang.notification.deleteNotification.content.disabled;
+        if (notification.next_trigger && notification.next_trigger > 0) {
+            const nextTrigger = new Date(notification.next_trigger * 1000);
+            nextTriggerStr = `${nextTrigger.getUTCDate()}/${nextTrigger.getUTCMonth() + 1}/${nextTrigger.getUTCFullYear()} ${String(nextTrigger.getUTCHours()).padStart(2, '0')}:${String(nextTrigger.getUTCMinutes()).padStart(2, '0')}`;
+        }
 
     const confirmButton = new ButtonBuilder()
         .setCustomId(`notification_delete_confirm_${notification.id}_${interaction.user.id}`)
@@ -323,7 +326,7 @@ async function showDeleteConfirmation(interaction, notification, lang) {
                         .replace('{name}', notification.name)
                         .replace('{type}', typeDisplay)
                         .replace('{status}', statusDisplay)
-                        .replace('{trigger}', dateStr)
+                        .replace('{trigger}', nextTriggerStr)
                         .replace('{repeat}', repeatDisplay)
                 )
             )

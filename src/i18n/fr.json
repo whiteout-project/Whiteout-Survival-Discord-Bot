@@ -1131,8 +1131,8 @@
                 "typePrivate": "Notification privée",
                 "statusActive": "Active",
                 "statusInactive": "Inactive",
-                "repeatEnabled": "Activée",
-                "repeatDisabled": "Désactivée"
+                "enabled": "Activée",
+                "disabled": "Désactivée"
             },
             "buttons": {
                 "deleteNotification": "Supprimer",
@@ -1178,10 +1178,17 @@
                     "directMessage": "Message privé"
                 },
                 "triggerField": {
-                    "name": "Prochain déclenchement"
+                    "name": "Prochain déclenchement",
+                    "disabled": "Aucun"
                 },
                 "repeatField": {
-                    "name": "Répétition"
+                    "name": "Répétition",
+                    "enabled": "Toutes les {parts}",
+                    "days": "{count}j",
+                    "hours": "{count}h",
+                    "minutes": "{count}min",
+                    "seconds": "{count}s",
+                    "disabled": "Aucune répétition"
                 },
                 "patternField": {
                     "name": "Modèle"
@@ -1201,6 +1208,7 @@
                 "content": "Contenu",
                 "repeat": "Répétition",
                 "pattern": "Modèle",
+                "disable": "Désactiver",
                 "save": "Enregistrer"
             },
             "selectMenu": {
@@ -1232,7 +1240,8 @@
                 "invalidDateFormat": "{emoji.1050} Format de date invalide. Utilisez JJ/MM/AAAA.",
                 "invalidTimeFormat": "{emoji.1050} Format d'heure invalide. Utilisez HH:MM:SS.",
                 "invalidDateTime": "{emoji.1050} Valeurs de date ou d'heure invalides.",
-                "timeInPast": "{emoji.1050} Le temps de déclenchement est dans le passé. Utilisez le bouton **Info** pour définir un déclenchement futur."
+                "timeInPast": "{emoji.1050} Le temps de déclenchement est dans le passé. Utilisez le bouton **Info** pour définir un déclenchement futur.",
+                "alreadyDisabled": "{emoji.1050} Cette notification est déjà désactivée."
             }
         },
         "notificationEditor": {

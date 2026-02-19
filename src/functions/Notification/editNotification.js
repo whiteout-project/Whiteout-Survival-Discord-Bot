@@ -306,14 +306,14 @@ async function handleNotificationSelection(interaction) {
 async function showNotificationEditPanel(interaction, notification, lang, updateExisting = false) {
     try {
         // Format next trigger time
-        let nextTriggerStr = 'None';
+        let nextTriggerStr = lang.notification.editNotification.content.triggerField.disabled;
         if (notification.next_trigger && notification.next_trigger > 0) {
             const nextTrigger = new Date(notification.next_trigger * 1000);
             nextTriggerStr = `${nextTrigger.getUTCDate()}/${nextTrigger.getUTCMonth() + 1}/${nextTrigger.getUTCFullYear()} ${String(nextTrigger.getUTCHours()).padStart(2, '0')}:${String(nextTrigger.getUTCMinutes()).padStart(2, '0')}`;
         }
 
         // Format repeat frequency
-        let repeatStr = 'No Repeat';
+        let repeatStr = lang.notification.editNotification.content.repeatField.disabled;
         if (notification.repeat_status === 1 && notification.repeat_frequency) {
             const freq = notification.repeat_frequency;
             const days = Math.floor(freq / 86400);
@@ -322,12 +322,12 @@ async function showNotificationEditPanel(interaction, notification, lang, update
             const seconds = freq % 60;
 
             const parts = [];
-            if (days > 0) parts.push(`${days}d`);
-            if (hours > 0) parts.push(`${hours}h`);
-            if (minutes > 0) parts.push(`${minutes}m`);
-            if (seconds > 0) parts.push(`${seconds}s`);
+            if (days > 0) parts.push(lang.notification.editNotification.content.repeatField.days.replace('{count}', days));
+            if (hours > 0) parts.push(lang.notification.editNotification.content.repeatField.hours.replace('{count}', hours));
+            if (minutes > 0) parts.push(lang.notification.editNotification.content.repeatField.minutes.replace('{count}', minutes));
+            if (seconds > 0) parts.push(lang.notification.editNotification.content.repeatField.seconds.replace('{count}', seconds));
 
-            repeatStr = `Every ${parts.join(' ')}`;
+            repeatStr = lang.notification.editNotification.content.repeatField.enabled.replace('{parts}', parts.join(' '));
         }
 
         // Parse mentions for preview
@@ -434,8 +434,15 @@ async function showNotificationEditPanel(interaction, notification, lang, update
             .setStyle(ButtonStyle.Success)
             .setEmoji(getComponentEmoji(getEmojiMapForAdmin(interaction.user.id), '1037'));
 
-        const buttonRow = new ActionRowBuilder().addComponents(infoButton, contentButton, repeatButton, patternButton, saveButton);
+        const disableButton = new ButtonBuilder()
+            .setCustomId(`notification_edit_disable_${notification.id}_${interaction.user.id}`)
+            .setLabel(lang.notification.editNotification.buttons.disable)
+            .setStyle(ButtonStyle.Secondary)
+            .setEmoji(getComponentEmoji(getEmojiMapForAdmin(interaction.user.id), '1051'))
+            .setDisabled(!notification.is_active);
 
+        const buttonRow = new ActionRowBuilder().addComponents(infoButton, contentButton, repeatButton, patternButton, disableButton);
+        const secondRow = new ActionRowBuilder().addComponents(saveButton);
         const embeds = [infoEmbed];
         if (notificationEmbed && notification.embed_toggle) {
             embeds.push(notificationEmbed);
@@ -448,14 +455,14 @@ async function showNotificationEditPanel(interaction, notification, lang, update
             await interaction.message.edit({
                 content: cleanMessageContent,
                 embeds: embeds,
-                components: [buttonRow]
+                components: [buttonRow, secondRow]
             });
         } else {
             // Send NEW message (NOT ephemeral for editor compatibility)
             const sentMessage = await interaction.followUp({
                 content: rawMessageContent,
                 embeds: embeds,
-                components: [buttonRow]
+                components: [buttonRow, secondRow]
             });
 
             // Update message immediately to show mentions
@@ -463,7 +470,7 @@ async function showNotificationEditPanel(interaction, notification, lang, update
                 await sentMessage.edit({
                     content: cleanMessageContent,
                     embeds: embeds,
-                    components: [buttonRow]
+                    components: [buttonRow, secondRow]
                 });
             } catch (error) {
                 // Silently fail if message was deleted or interaction expired
@@ -882,6 +889,81 @@ async function handleSaveButton(interaction) {
 }
 
 /**
+ * Handle Disable button - clears next_trigger and removes from scheduler
+ */
+async function handleDisableButton(interaction) {
+    const { lang } = getAdminLang(interaction.user.id);
+
+    try {
+        const parts = interaction.customId.split('_');
+        const notificationId = parseInt(parts[3]);
+        const userId = parts[4];
+
+        if (!(await assertUserMatches(interaction, userId, lang))) return;
+
+        const notification = notificationQueries.getNotificationById(notificationId);
+
+        if (!notification) {
+            return await interaction.reply({
+                content: lang.notification.editNotification.errors.notificationNotFound,
+                ephemeral: true
+            });
+        }
+
+        if (!notification.is_active) {
+            return await interaction.reply({
+                content: lang.notification.editNotification.errors.alreadyDisabled,
+                ephemeral: true
+            });
+        }
+
+        // Update notification next_trigger to 0 (no next trigger) and mark inactive
+        notificationQueries.updateNotification(
+            notificationId,
+            notification.name,
+            notification.guild_id,
+            notification.channel_id,
+            notification.hour,
+            notification.minute,
+            notification.message_content,
+            notification.title,
+            notification.description,
+            notification.color,
+            notification.image_url,
+            notification.thumbnail_url,
+            notification.footer,
+            notification.author,
+            notification.fields,
+            notification.pattern,
+            notification.mention,
+            notification.repeat_status,
+            notification.repeat_frequency,
+            notification.embed_toggle,
+            0,
+            notification.last_trigger,
+            0
+        );
+
+        // Remove from scheduler
+        await notificationScheduler.removeNotification(notificationId);
+
+        adminLogQueries.addLog(
+            interaction.user.id,
+            LOG_CODES.NOTIFICATION.EDITED,
+            JSON.stringify({ notification_id: notificationId, action: 'disabled' })
+        );
+
+        // Acknowledge and update panel
+        await interaction.deferUpdate();
+        const updatedNotification = notificationQueries.getNotificationById(notificationId);
+        await showNotificationEditPanel(interaction, updatedNotification, lang, true);
+
+    } catch (error) {
+        await sendError(interaction, lang, error, 'handleDisableButton');
+    }
+}
+
+/**
  * Get filtered notifications by type and permissions
  * @param {string} type - 'server' or 'private'
  * @param {string} userId - User ID for permission filtering
@@ -935,5 +1017,6 @@ module.exports = {
     handleRepeatButtonFromEdit,
     handlePatternButtonFromEdit,
     handleSaveButton,
-    getFilteredNotifications // Export for reuse in template library
+    handleDisableButton,
+    getFilteredNotifications 
 };
