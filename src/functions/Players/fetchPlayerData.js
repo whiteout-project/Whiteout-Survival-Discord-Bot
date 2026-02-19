@@ -3,7 +3,7 @@ const { getProcessById, updateProcessStatus, updateProcessProgress } = require('
 const { queueManager } = require('../Processes/queueManager');
 const { adminQueries, allianceQueries, playerQueries, systemLogQueries } = require('../utility/database');
 const languages = require('../../i18n');
-const { sendError } = require('../utility/commonFunctions');
+const { sendError, getAdminLang } = require('../utility/commonFunctions');
 const { getEmojiMapForAdmin, getComponentEmoji, getGlobalEmojiMap } = require('../utility/emojis');
 const { API_CONFIG } = require('../utility/apiConfig');
 const { fetchPlayerData: fetchPlayerFromAPIShared } = require('../utility/apiClient');
@@ -22,8 +22,6 @@ class PlayerDataProcessor {
      * @returns {Promise<void>}
      */
     async processPlayerData(processId) {
-        // get admin language for messages
-
         // Get process data
         const processData = await getProcessById(processId);
         if (!processData) {
@@ -37,9 +35,7 @@ class PlayerDataProcessor {
         }
 
         // Get admin language for messages
-        const adminData = adminQueries.getAdmin(processData.created_by);
-        const userLang = (adminData && adminData.language) ? adminData.language : 'en';
-        const lang = languages[userLang] || languages['en'] || {};
+        const { lang } = getAdminLang(processData.created_by);
         try {
             // Get bot client for sending messages
             const { client } = require('../../index'); // Get client from main file
@@ -519,7 +515,6 @@ class PlayerDataProcessor {
 
             // Clean up processing state - completion is handled by executeProcesses.js
             this.processing.delete(processId);
-
 
         } catch (error) {
             await sendError(null, lang, error, 'completeProcess', false);

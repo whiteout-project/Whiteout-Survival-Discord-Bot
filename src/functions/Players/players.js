@@ -85,8 +85,11 @@ async function handlePlayerManagementButton(interaction) {
                         `${lang.players.mainPage.content.removePlayersField.name}\n` +
                         `${lang.players.mainPage.content.removePlayersField.value}\n` +
 
-                        `${lang.players.mainPage.content.editPlayersField.name}\n` +
-                        `${lang.players.mainPage.content.editPlayersField.value}\n`
+                        `${lang.players.mainPage.content.idChannelField.name}\n` +
+                        `${lang.players.mainPage.content.idChannelField.value}\n` +
+
+                        `${lang.players.mainPage.content.exportPlayersField.name}\n` +
+                        `${lang.players.mainPage.content.exportPlayersField.value}\n`
                     )
                 )
                 .addSeparatorComponents(

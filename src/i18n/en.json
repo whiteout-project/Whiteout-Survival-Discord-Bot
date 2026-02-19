@@ -54,13 +54,21 @@
 					"name": "- **Delete Alliance**",
 					"value": "  - Delete the alliance and all its members"
 				},
-				"viewAlliancesField": {
-					"name": "- **View Alliances**",
-					"value": "  - View all alliances with details"
+				"manualRefreshField": {
+					"name": "- **Manual Refresh**",
+					"value": "  - Trigger a instant refresh for alliance player information"
 				},
 				"editPriorityField": {
 					"name": "- **Edit Priority**",
 					"value": "  - Manage alliance priority order"
+				},
+				"viewAlliancesField": {
+					"name": "- **View Alliances**",
+					"value": "  - View all alliances with details"
+				},
+				"assignAllianceField": {
+					"name": "- **Assign Alliances to Admin**",
+					"value": "  - Assign specific alliances to admins to give them access to manage those alliances"
 				}
 			},
 			"buttons": {
@@ -386,9 +394,13 @@
 					"name": "- **Remove Players**",
 					"value": "  - Remove players from your alliance"
 				},
-				"editPlayersField": {
-					"name": "- **Edit Players**",
-					"value": "  - Edit player information"
+				"idChannelField": {
+					"name": "- **ID Channel**",
+					"value": "  - Set up a channel where players can submit their game IDs to be automatically added to the alliance"
+				},
+				"exportPlayersField": {
+					"name": "- **Export Players**",
+					"value": "  - Export a list of all players in the alliances you manage in a CSV file"
 				}
 			},
 			"buttons": {
@@ -780,6 +792,10 @@
 				"listGiftCodesField": {
 					"name": "- **List GiftCodes**",
 					"value": "  - View all available gift codes"
+				},
+				"giftCodeChannel": {
+					"name": "- **Gift Code Channel**",
+					"value": "  - Set up a channel where gift codes can be submitted by anyone for auto redeem"
 				}
 			},
 			"buttons": {

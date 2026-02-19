@@ -54,13 +54,21 @@
                     "name": "- **Supprimer une alliance**",
                     "value": "  - Supprimer l'alliance et tous ses membres"
                 },
+                "editPriorityField": {
+                    "name": "- **Modifier la priorité**",
+                    "value": "  - Gérer l'ordre de priorité des alliances"
+                },
+                "manualRefreshField": {
+                    "name": "- **Rafraîchissement manuel**",
+                    "value": "  - Lancer un rafraîchissement manuel pour une ou plusieurs alliances"
+                },
                 "viewAlliancesField": {
                     "name": "- **Voir les alliances**",
                     "value": "  - Voir toutes les alliances avec les détails"
                 },
-                "editPriorityField": {
-                    "name": "- **Modifier la priorité**",
-                    "value": "  - Gérer l'ordre de priorité des alliances"
+                "assignAllianceField": {
+                    "name": "- **Assigner des alliances**",
+                    "value": "  - Assigner des alliances spécifiques aux administrateurs pour leur permettre de gérer ces alliances"
                 }
             },
             "buttons": {
@@ -386,9 +394,13 @@
                     "name": "- **Supprimer des Joueurs**",
                     "value": "  - Supprimer des joueurs de votre alliance"
                 },
-                "editPlayersField": {
-                    "name": "- **Modifier les Joueurs**",
-                    "value": "  - Modifier les informations des joueurs"
+                "idChannelField": {
+                    "name": "- **Canal d'ID**",
+                    "value": "  - Configurez un canal où les joueurs peuvent soumettre leurs IDs de jeu pour être ajoutés automatiquement à l'alliance"
+                },
+                "exportPlayersField": {
+                    "name": "- **Exporter des Joueurs**",
+                    "value": "  - Exporter la liste de tous les joueurs des alliances que vous gérez au format CSV"
                 }
             },
             "buttons": {
@@ -780,7 +792,11 @@
                 "listGiftCodesField": {
                     "name": "- **Lister les Cadeaux**",
                     "value": "  - Voir tous les Cadeaux disponibles"
-                }
+                },
+                "giftCodeChannel": {
+					"name": "- **Canal de codes cadeaux**",
+					"value": "  - Définir un canal où les codes cadeaux peuvent être soumis par n'importe qui pour un remboursement automatique"
+				}
             },
             "buttons": {
                 "addGiftCode": "Ajouter",

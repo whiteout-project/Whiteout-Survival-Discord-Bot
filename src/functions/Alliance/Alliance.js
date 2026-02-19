@@ -90,11 +90,18 @@ async function handleAllianceManagementButton(interaction) {
                         `${lang.alliance.mainPage.content.deleteAllianceField.name}\n` +
                         `${lang.alliance.mainPage.content.deleteAllianceField.value}\n` +
 
+                        `${lang.alliance.mainPage.content.editPriorityField.name}\n` +
+                        `${lang.alliance.mainPage.content.editPriorityField.value}\n` +
+
+                        `${lang.alliance.mainPage.content.manualRefreshField.name}\n` +
+                        `${lang.alliance.mainPage.content.manualRefreshField.value}\n` +
+
                         `${lang.alliance.mainPage.content.viewAlliancesField.name}\n` +
                         `${lang.alliance.mainPage.content.viewAlliancesField.value}\n` +
 
-                        `${lang.alliance.mainPage.content.editPriorityField.name}\n` +
-                        `${lang.alliance.mainPage.content.editPriorityField.value}\n`
+                        `${lang.alliance.mainPage.content.assignAllianceField.name}\n` +
+                        `${lang.alliance.mainPage.content.assignAllianceField.value}\n`
+
                     )
                 )
                 .addSeparatorComponents(

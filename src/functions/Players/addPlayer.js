@@ -415,12 +415,20 @@ async function handlePlayerIdModal(interaction) {
         const currentProcess = await getProcessById(processResult.process_id);
 
         if (currentProcess) {
+            // Safely resolve ids — interaction.guild or targetChannel may be null (DMs or missing channel)
+            const messageId = responseMessage ? responseMessage.id : null;
+            const channelId = targetChannel ? targetChannel.id : null;
+            const guildId = (interaction && interaction.guild && interaction.guild.id)
+                ? interaction.guild.id
+                : (targetChannel && targetChannel.guild && targetChannel.guild.id) ? targetChannel.guild.id : null;
+
             const updatedProgress = {
                 ...currentProcess.progress,
-                message_id: responseMessage.id,
-                channel_id: targetChannel.id,
-                guild_id: interaction.guild.id
+                message_id: messageId,
+                channel_id: channelId,
+                guild_id: guildId
             };
+
             await updateProcessProgress(processResult.process_id, updatedProgress);
         }
 
@@ -479,18 +487,18 @@ function sanitizePlayerIds(rawInput) {
  */
 function createProcessResponseEmbed(processResult, queueResult, alliance, lang, interaction, existingPlayers = []) {
     const playerCount = processResult.player_ids ? processResult.player_ids.split(',').length : 0;
-
+    const emojiMap = getEmojiMapForAdmin(interaction.user.id);
     let color = "#3498db"; // Default blue
-    let statusEmoji = getComponentEmoji(getEmojiMapForAdmin(interaction.user.id), '1021');
+    let statusEmoji = emojiMap['1021'];
     let statusMessage = lang.players.addPlayer.content.status.queued;
 
     if (queueResult.status === 'active') {
         color = "#00ff00"; // Green
-        statusEmoji = getComponentEmoji(getEmojiMapForAdmin(interaction.user.id), '1035');
+        statusEmoji = emojiMap['1035'];
         statusMessage = lang.players.addPlayer.content.status.active;
     } else if (queueResult.status === 'queue') {
         color = "#ffa500"; // Orange
-        statusEmoji = getComponentEmoji(getEmojiMapForAdmin(interaction.user.id), '1021');
+        statusEmoji = emojiMap['1021'];
         statusMessage = lang.players.addPlayer.content.status.queued;
     }
 

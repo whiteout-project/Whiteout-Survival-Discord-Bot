@@ -96,7 +96,10 @@ async function handleGiftCodeManagementButton(interaction) {
                         `${lang.giftCode.mainPage.content.listGiftCodesField.value}\n` +
 
                         `${lang.giftCode.mainPage.content.deleteGiftCodeField.name}\n` +
-                        `${lang.giftCode.mainPage.content.deleteGiftCodeField.value}\n`
+                        `${lang.giftCode.mainPage.content.deleteGiftCodeField.value}\n` +
+
+                        `${lang.giftCode.mainPage.content.giftCodeChannel.name}\n` +
+                        `${lang.giftCode.mainPage.content.giftCodeChannel.value}\n`
                     )
                 )
                 .addSeparatorComponents(

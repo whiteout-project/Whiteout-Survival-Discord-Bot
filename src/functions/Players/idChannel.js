@@ -19,7 +19,7 @@ const { createProcess } = require('../Processes/createProcesses');
 const { queueManager } = require('../Processes/queueManager');
 const { hasPermission, sendError, getAdminLang, assertUserMatches, updateComponentsV2AfterSeparator, createAllianceSelectionComponents } = require('../utility/commonFunctions');
 const { createUniversalPaginationButtons, parsePaginationCustomId } = require('../Pagination/universalPagination');
-const { getEmojiMapForAdmin, getComponentEmoji } = require('../utility/emojis');
+const { getEmojiMapForAdmin, getComponentEmoji, getGlobalEmojiMap } = require('../utility/emojis');
 
 // Global cache for ID channels
 global.idChannelCache = new Map();
@@ -767,6 +767,7 @@ async function handleIdChannelMessage(message) {
     if (message.author.bot) return;
 
     const { lang } = getAdminLang(message.author.id);
+    const emojiMap = getEmojiMapForAdmin(message.author.id);
 
     try {
         // Check cache first (no DB query for non-ID channels)
@@ -807,7 +808,7 @@ async function handleIdChannelMessage(message) {
         // If ALL players already exist, show embed and return (no process needed)
         if (existingPlayers.length === playerIdsArray.length && existingPlayers.length > 0) {
             // React with info emoji to indicate all exist
-            await message.react('ℹ️');
+            await message.react(emojiMap['1017'] || 'ℹ️');
 
             // Send brief response
             const embed = new EmbedBuilder()
