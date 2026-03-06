@@ -293,6 +293,26 @@ try {
     } catch (e) {
         console.error('Database migration: failed to migrate admins language/emoji → users', e);
     }
+
+    // Clean up pre-existing invalid gift codes and their usage history
+    // Invalid codes are no longer kept — they are deleted so they can be re-added if they become active again
+    try {
+        const invalidCodes = db.prepare(`SELECT gift_code FROM gift_codes WHERE status = 'invalid'`).all();
+        if (invalidCodes.length > 0) {
+            const deleteUsage = db.prepare('DELETE FROM giftcode_usage WHERE gift_code = ?');
+            const deleteCode = db.prepare(`DELETE FROM gift_codes WHERE gift_code = ?`);
+            const deleteInvalid = db.transaction((codes) => {
+                for (const { gift_code } of codes) {
+                    deleteUsage.run(gift_code);
+                    deleteCode.run(gift_code);
+                }
+            });
+            deleteInvalid(invalidCodes);
+            console.log(`Database migration: removed ${invalidCodes.length} pre-existing invalid gift code(s) and their usage history`);
+        }
+    } catch (e) {
+        console.error('Database migration: failed to clean up invalid gift codes', e);
+    }
 } catch (error) {
     console.error('FATAL: Database initialization failed:', error);
     process.exit(1);
