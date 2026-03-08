@@ -31,7 +31,7 @@ A powerful Discord bot for managing Whiteout Survival game data, alliances, play
 
 ### Prerequisites
 
-- **Node.js**: Version 18.x, 20.x, 22.x is recommended. Versions above 22 might not be compatible. ([Install from here](https://nodejs.org/en/download))
+- **Node.js**: Version 18.x, 20.x, 22.x is the only supported versions ([Install from here](https://nodejs.org/en/download))
 - A **Discord Bot Token** ([Create one here](https://discord.com/developers/applications))
 
 ### One-Click Install
