@@ -1339,6 +1339,12 @@ async function restartBot() {
     try {
         console.log('Restarting bot (full cache clear)...\n');
 
+        // Cancel any pending notification timeouts before destroying the client.
+        try {
+            const { notificationScheduler } = require('./src/functions/Notification/notificationScheduler');
+            notificationScheduler.cleanup();
+        } catch { /* ignore — scheduler may not be loaded yet */ }
+
         // Destroy the current client
         if (botClient) {
             console.log('Disconnecting client...');
