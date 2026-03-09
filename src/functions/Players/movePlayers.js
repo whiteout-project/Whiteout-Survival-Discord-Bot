@@ -1009,8 +1009,8 @@ async function handleMovePlayersCancelWrong(interaction) {
  */
 function sanitizePlayerIds(rawInput) {
     try {
-        // Remove all spaces and split by commas
-        const ids = rawInput.replace(/\s+/g, '').split(',');
+        // Split by commas, newlines, or any combination (supports spreadsheet paste)
+        const ids = rawInput.split(/[,\n\r]+/).map(id => id.trim());
 
         // Validate each ID
         const validIds = [];

@@ -1,16 +1,15 @@
 const {
     getProcessById,
     updateProcessStatus,
-    setProcessResumeTime,
     setProcessPreemption,
+    clearProcessPreemption,
     getNextQueuedProcess,
     getActiveProcesses,
-    getPausedProcessesReadyToResume,
-    hasHigherPriorityQueued,
     getProcessesByStatus,
+    getProcessesByActionAndTarget,
     PROCESS_STATUS
 } = require('./createProcesses');
-const { systemLogQueries, allianceQueries, playerQueries } = require('../utility/database');
+const { systemLogQueries, allianceQueries } = require('../utility/database');
 
 // Import process executor (avoid circular dependency by lazy loading)
 let processExecutor = null;
@@ -43,9 +42,7 @@ const getAutoRefreshManager = () => {
  * SQLite-based priority queue management for process execution
  */
 class QueueManager {
-    constructor() {
-        this.isProcessing = false;
-    }
+    constructor() {}
 
     /**
      * Manages process queue and priority handling
@@ -211,6 +208,11 @@ class QueueManager {
             // Start the process
             await updateProcessStatus(nextProcess.id, PROCESS_STATUS.ACTIVE);
 
+            // Clear stale preempted_by if this process was previously preempted
+            if (nextProcess.preempted_by) {
+                await clearProcessPreemption(nextProcess.id);
+            }
+
             // Execute the process
             const executor = getProcessExecutor();
             const processInfo = {
@@ -240,77 +242,6 @@ class QueueManager {
     }
 
     /**
-     * Resumes paused processes that are ready to continue
-     * @returns {Promise<boolean>} True if a process was resumed, false otherwise
-     */
-    async resumePausedProcesses() {
-        try {
-            const pausedProcesses = await getPausedProcessesReadyToResume();
-
-            for (const pausedProcess of pausedProcesses) {
-                try {
-                    // Check if process was preempted BEFORE resuming
-                    if (pausedProcess.preempted_by) {
-                        const preemptingProcess = await getProcessById(pausedProcess.preempted_by);
-                        if (preemptingProcess &&
-                            ![PROCESS_STATUS.COMPLETED, PROCESS_STATUS.FAILED].includes(preemptingProcess.status)) {
-                            // Preempting process is still active, cannot resume yet
-                            continue;
-                        }
-                    }
-
-                    // Check if there are higher priority processes queued
-                    const hasHigherQueued = await hasHigherPriorityQueued(pausedProcess.priority);
-                    if (hasHigherQueued) {
-                        continue;
-                    }
-
-                    // Check if there are active processes with higher priority
-                    const activeProcesses = await getActiveProcesses();
-                    const hasHigherPriorityActive = activeProcesses.some(p => p.priority < pausedProcess.priority);
-                    if (hasHigherPriorityActive) {
-                        continue;
-                    }
-
-                    // Safe to resume: Update status to active first
-                    await updateProcessStatus(pausedProcess.id, PROCESS_STATUS.ACTIVE);
-
-                    // Then execute the process
-                    const executor = getProcessExecutor();
-                    const processInfo = {
-                        process_id: pausedProcess.id,
-                        status: 'active',
-                        paused: null
-                    };
-
-                    // Execute process asynchronously (don't await to avoid blocking)
-                    executor.executeProcess(processInfo).catch(() => { });
-
-                    return true;
-
-                } catch (processError) {
-                    // Process error logged to system logs in catch block below
-                }
-            }
-
-            // No processes were resumed
-            return false;
-
-        } catch (error) {
-            systemLogQueries.addLog(
-                'error',
-                'Error resuming paused processes',
-                JSON.stringify({
-                    error: error.message,
-                    stack: error.stack,
-                    function: 'resumePausedProcesses'
-                })
-            );
-            return false;
-        }
-    }
-
-    /**
      * Completes a process and starts the next one in queue
      * @param {number} processId - Process ID to complete
      * @returns {Promise<null>} Always returns null
@@ -334,16 +265,9 @@ class QueueManager {
                 try {
                     const refreshManager = getAutoRefreshManager();
 
-                    // Check if there's already an auto-refresh for this alliance (queued, paused, or active)
-                    const { getProcessesByStatus } = require('./createProcesses');
-                    const queuedProcesses = await getProcessesByStatus('queued');
-                    const pausedProcesses = await getProcessesByStatus('paused');
-                    const activeProcesses = await getActiveProcesses();
-                    const allProcesses = [...queuedProcesses, ...pausedProcesses, ...activeProcesses];
-
-                    const existingAutoRefresh = allProcesses.find(p =>
-                        p.action === 'auto_refresh' && parseInt(p.target, 10) === allianceId
-                    );
+                    // Check if there's already an auto-refresh for this alliance (queued or active)
+                    const existingProcesses = await getProcessesByActionAndTarget('auto_refresh', processData.target);
+                    const existingAutoRefresh = existingProcesses.length > 0;
 
                     if (!existingAutoRefresh && !refreshManager.scheduledRefreshes.has(allianceId)) {
                         // Schedule auto-refresh (only schedules, doesn't create process immediately)
@@ -387,38 +311,6 @@ class QueueManager {
     }
 
     /**
-     * Pauses a process due to rate limiting
-     * @param {number} processId - Process ID to pause
-     * @param {number} resumeAfter - Timestamp when to resume (milliseconds)
-     * @returns {Promise<boolean>} Success status
-     */
-    async pauseForRateLimit(processId, resumeAfter) {
-        try {
-            await updateProcessStatus(processId, PROCESS_STATUS.PAUSED);
-            await setProcessResumeTime(processId, resumeAfter);
-
-            // Try to start next process while waiting
-            await this.startNextProcess();
-
-            return true;
-
-        } catch (error) {
-            systemLogQueries.addLog(
-                'error',
-                'Error pausing process for rate limit',
-                JSON.stringify({
-                    processId,
-                    resumeAfter,
-                    error: error.message,
-                    stack: error.stack,
-                    function: 'pauseForRateLimit'
-                })
-            );
-            return false;
-        }
-    }
-
-    /**
      * Gets queue statistics
      * @returns {Promise<Object>} Queue statistics
      */
@@ -426,16 +318,13 @@ class QueueManager {
         try {
             const queuedProcesses = await this.getQueuedProcesses();
             const activeProcesses = await getActiveProcesses();
-            const pausedProcesses = await getPausedProcessesReadyToResume();
 
             return {
                 queued: queuedProcesses.length,
                 active: activeProcesses.length,
-                paused: pausedProcesses.length,
-                total: queuedProcesses.length + activeProcesses.length + pausedProcesses.length,
+                total: queuedProcesses.length + activeProcesses.length,
                 queuedByPriority: this.groupByPriority(queuedProcesses),
-                activeByPriority: this.groupByPriority(activeProcesses),
-                pausedByPriority: this.groupByPriority(pausedProcesses)
+                activeByPriority: this.groupByPriority(activeProcesses)
             };
 
         } catch (error) {
@@ -451,11 +340,9 @@ class QueueManager {
             return {
                 queued: 0,
                 active: 0,
-                paused: 0,
                 total: 0,
                 queuedByPriority: {},
-                activeByPriority: {},
-                pausedByPriority: {}
+                activeByPriority: {}
             };
         }
     }
@@ -492,33 +379,6 @@ class QueueManager {
                 })
             );
             return [];
-        }
-    }
-
-    /**
-     * Adds a process to the queue
-     * @param {number} processId - Process ID
-     * @param {number} priority - Process priority
-     * @returns {Promise<boolean>} Success status
-     */
-    async addToQueue(processId, priority) {
-        try {
-            // Process is already in queue by default when created
-            // This method is kept for compatibility
-            return true;
-        } catch (error) {
-            systemLogQueries.addLog(
-                'error',
-                'Error adding process to queue',
-                JSON.stringify({
-                    processId,
-                    priority,
-                    error: error.message,
-                    stack: error.stack,
-                    function: 'addToQueue'
-                })
-            );
-            return false;
         }
     }
 }

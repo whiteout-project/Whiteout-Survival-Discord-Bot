@@ -414,7 +414,8 @@
 				"viewPlayers": "View Players",
 				"removePlayers": "Remove Players",
 				"export": "Export Players",
-				"idChannel": "ID Channel"
+				"idChannel": "ID Channel",
+				"history": "History"
 			},
 			"errors": {}
 		},
@@ -444,6 +445,41 @@
 				"noAssignedAlliances": "{emoji.1050} You are not assigned to any alliances.",
 				"noAvailableAlliances": "{emoji.1050} No alliances with players found.",
 				"noPlayersInAlliance": "{emoji.1050} No players found in this alliance."
+			}
+		},
+		"history": {
+			"content": {
+				"title": "### {emoji.1044} Player History",
+				"typeDescription": "Select the type of changes you want to view.",
+				"allianceTitle": "### {emoji.1044} Select Alliance",
+				"allianceDescription": "Choose an alliance to view its player change history.",
+				"changesTitle": "### {emoji.1044} {type} History — {allianceName}",
+				"playerTitle": "### {emoji.1044} {type} History — {playerName} ({fid})",
+				"furnaceChange": "- **{nickname}** (`{fid}`)\n  - {oldLevel} → {newLevel}\n  - {date}",
+				"nicknameChange": "- **{nickname}** (`{fid}`)\n  - {oldNickname} → {newNickname}\n  - {date}"
+			},
+			"buttons": {
+				"furnace": "Furnace",
+				"nickname": "Nickname",
+				"search": "Search by ID"
+			},
+			"selectMenu": {
+				"allianceSelect": {
+					"placeholder": "Select an alliance to view history",
+					"description": "Priority: {alliancePriority}"
+				}
+			},
+			"modal": {
+				"title": "Search Player History",
+				"label": "Player ID",
+				"placeholder": "Enter the player's game ID"
+			},
+			"errors": {
+				"noAlliances": "{emoji.1050} You are not assigned to any alliances.",
+				"noChanges": "{emoji.1050} No changes found.",
+				"invalidId": "{emoji.1050} Please enter a valid numeric player ID.",
+				"playerNotFound": "{emoji.1050} This player was not found in the database.",
+				"noAccessToPlayer": "{emoji.1050} You do not have access to this player's alliance."
 			}
 		},
 		"addPlayer": {
@@ -514,7 +550,7 @@
 				"title": "Add Players",
 				"playerIdInput": {
 					"label": "Player IDs",
-					"placeholder": "Enter player IDs (e.g., 123456789,987654321)"
+					"placeholder": "One ID per line or comma-separated"
 				}
 			},
 			"selectMenu": {
@@ -577,7 +613,37 @@
 			"buttons": {
 				"setChannel": "Set ID Channel",
 				"add": "Set ID Channel",
-				"remove": "Remove ID Channel"
+				"remove": "Remove ID Channel",
+				"autoClean": "Auto Clean"
+			},
+			"autoClean": {
+				"content": {
+					"title": "### {emoji.1033} Auto Clean",
+					"description": "Select a channel to configure auto-clean. Messages will be automatically deleted at the set interval.",
+					"currentInterval": "Current interval: **{minutes} min**",
+					"disabled": "Auto clean is **disabled** for this channel.",
+					"setSuccess": "Auto clean set to **{minutes} minutes** for <#{channel}>.",
+					"disableSuccess": "Auto clean has been **disabled** for <#{channel}>."
+				},
+				"buttons": {
+					"set": "Set",
+					"disable": "Disable"
+				},
+				"selectMenu": {
+					"placeholder": "Select a channel to configure",
+					"currentInterval": "Current interval: {minutes} min",
+					"disabled": "Auto clean is disabled"
+				},
+				"modal": {
+					"title": "Set Auto Clean Interval",
+					"label": "Interval in minutes",
+					"placeholder": "e.g., 60"
+				},
+				"errors": {
+					"noChannels": "{emoji.1050} No ID channels found.",
+					"invalidInterval": "{emoji.1050} Please enter a valid number of minutes (minimum 1).",
+					"channelNotFound": "{emoji.1050} Channel not found. Please try again."
+				}
 			},
 			"errors": {
 				"noAlliances": "{emoji.1050} No alliances found. Please create an alliance first.",
@@ -636,7 +702,7 @@
 				"title": "Move Players",
 				"playerIdInput": {
 					"label": "Player IDs",
-					"placeholder": "Enter player IDs (e.g., 123456789,987654321)"
+					"placeholder": "One ID per line or comma-separated"
 				}
 			},
 			"selectMenu": {
@@ -700,7 +766,7 @@
 				"title": "Remove Players",
 				"playerIdInput": {
 					"label": "Player IDs",
-					"placeholder": "Enter player IDs (e.g., 123456789,987654321)"
+					"placeholder": "One ID per line or comma-separated"
 				}
 			},
 			"selectMenu": {
@@ -1193,6 +1259,8 @@
 				"repeatField": {
 					"name": "Repeat",
 					"enabled": "Every {parts}",
+					"weekly": "Weekly: {days}",
+					"weeklyDays": ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
 					"days": "{count}d",
 					"hours": "{count}h",
 					"minutes": "{count}m",
@@ -1488,6 +1556,7 @@
 				"every2Weeks": "Every 2 Weeks",
 				"noRepeat": "No Repeat",
 				"custom": "Custom",
+				"weekly": "Weekly",
 				"updateTime": "Update Time"
 			},
 			"selectMenu": {
@@ -1499,6 +1568,18 @@
 					"label": "Pattern (X or X,X,time)",
 					"description": "The values represent minutes before the scheduled time when the notification will be sent.",
 					"placeholder": "e.g., 5 or 5,10,time"
+				},
+				"weeklyRepeat": {
+					"title": "Weekly Repeat Schedule",
+					"label": "Select Days",
+					"placeholder": "Choose days of the week",
+					"sunday": "Sunday",
+					"monday": "Monday",
+					"tuesday": "Tuesday",
+					"wednesday": "Wednesday",
+					"thursday": "Thursday",
+					"friday": "Friday",
+					"saturday": "Saturday"
 				},
 				"customRepeat": {
 					"title": "Custom Repeat Interval",

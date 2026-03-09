@@ -116,13 +116,25 @@ class NotificationScheduler {
                             notification.is_active = false;
                             continue; // Skip to next notification
                         } else {
-                            // Has repeat - recalculate next_trigger to future using math (not loop)
-                            // Use Math.floor to ensure integer timestamps and avoid floating-point precision issues
-                            const currentTrigger = Math.floor(notification.next_trigger);
-                            const frequency = Math.floor(notification.repeat_frequency);
-                            const timePassed = currentTime - currentTrigger;
-                            const missedOccurrences = Math.floor(timePassed / frequency);
-                            const nextTrigger = currentTrigger + (frequency * (missedOccurrences + 1));
+                            // Has repeat - recalculate next_trigger to future
+                            let nextTrigger;
+
+                            if (this.isWeeklyRepeat(notification.repeat_frequency)) {
+                                // Weekly repeat - find next matching day
+                                nextTrigger = this.calculateNextWeeklyTrigger(
+                                    notification.hour,
+                                    notification.minute,
+                                    this.parseWeeklyDays(notification.repeat_frequency),
+                                    currentTime
+                                );
+                            } else {
+                                // Seconds-based repeat - use math (not loop)
+                                const currentTrigger = Math.floor(notification.next_trigger);
+                                const frequency = Math.floor(notification.repeat_frequency);
+                                const timePassed = currentTime - currentTrigger;
+                                const missedOccurrences = Math.floor(timePassed / frequency);
+                                nextTrigger = currentTrigger + (frequency * (missedOccurrences + 1));
+                            }
 
 
                             // Update notification with new next_trigger
@@ -232,10 +244,6 @@ class NotificationScheduler {
 
             hasValidSchedule = true;
 
-            // Schedule 3 seconds early to account for processing overhead + network delays
-            const EARLY_BUFFER_MS = 3000;
-            const earlyDelayMs = Math.max(0, delayMs - EARLY_BUFFER_MS);
-
             const timeoutId = setTimeout(async () => {
                 try {
                     // Check if this schedule has been cancelled (new schedule created)
@@ -243,38 +251,12 @@ class NotificationScheduler {
                         return; // Cancelled - don't send
                     }
 
-                    // Prepare everything during the buffer time
                     const isLastSend = sendTime === scheduledTime;
-                    const preparedPayload = await this.prepareNotification(notification, sendTime);
-
-                    if (!preparedPayload) {
-                        return;
-                    }
-
-                    // Check again after async preparation (in case it was cancelled during prep)
-                    if (this.scheduleGenerations.get(notificationId) !== generationId) {
-                        return; // Cancelled during preparation - don't send
-                    }
-
-                    // Wait precisely until the exact send time
-                    const now = Math.floor(Date.now() / 1000);
-                    const remainingMs = (sendTime - now) * 1000;
-
-                    if (remainingMs > 0) {
-                        await new Promise(resolve => setTimeout(resolve, remainingMs));
-                    }
-
-                    // Final check before sending (in case cancelled during wait)
-                    if (this.scheduleGenerations.get(notificationId) !== generationId) {
-                        return; // Cancelled during wait - don't send
-                    }
-
-                    // Send immediately at exact time
-                    await this.sendPreparedNotification(preparedPayload, notification, sendTime, scheduledTime, isLastSend);
+                    await this.sendNotification(notification, sendTime, scheduledTime, isLastSend);
                 } catch (error) {
                     await handleError(null, null, error, `NotificationScheduler.setTimeout - notification ${notification.id}`);
                 }
-            }, earlyDelayMs);
+            }, delayMs);
 
             timeoutIds.push(timeoutId);
         }
@@ -358,26 +340,27 @@ class NotificationScheduler {
     }
 
     /**
-     * Prepare notification payload (channel/user, embed, mentions) during buffer time
-     * @param {Object} notification - The notification to prepare
+     * Build and send a notification in one step
+     * @param {Object} notification - The notification to send
      * @param {number} sendTime - The time this send is happening
-     * @returns {Object|null} Prepared payload or null if error
+     * @param {number} scheduledTime - The original scheduled time
+     * @param {boolean} isLastSend - Whether this is the final send at scheduled time
      */
-    async prepareNotification(notification, sendTime) {
+    async sendNotification(notification, sendTime, scheduledTime, isLastSend) {
         try {
-            // Check if client is available
-            if (!this.client) {
+            // Check if client is available and ready
+            if (!this.client || !this.client.isReady()) {
                 console.error(`Discord client not available for notification ${notification.id}`);
-                return null;
+                return;
             }
 
             // Fetch fresh notification data from database (in case it was updated)
             const currentNotification = notificationQueries.getNotificationById(notification.id);
             if (!currentNotification || !currentNotification.is_active) {
-                return null;
+                return;
             }
 
-            // Use fresh data for everything
+            // Build message content with mentions
             const mentions = parseMentions(currentNotification.mention);
             const rawMessageContent = currentNotification.message_content;
             const messageContent = convertTagsToMentions(rawMessageContent, mentions, 'message');
@@ -419,100 +402,38 @@ class NotificationScheduler {
                             });
                         }
                     } catch (error) {
-                        await handleError(null, null, error, 'NotificationScheduler.prepareNotification - parsing fields');
+                        await handleError(null, null, error, 'NotificationScheduler.sendNotification - parsing fields');
                     }
                 }
             }
 
-            // Verify targets exist during buffer time, but store IDs (not objects)
-            // to avoid stale references when sending later
-            let targetType = null;
-            let targetId = null;
-            let guildId = null;
-
-            if (currentNotification.guild_id && currentNotification.channel_id) {
-                // Server notification - verify channel exists
-                const guild = this.client.guilds.cache.get(currentNotification.guild_id);
-                if (!guild) {
-                    console.error(`Guild not found for notification ${notification.id}`);
-                    return null;
-                }
-
-                const channel = guild.channels.cache.get(currentNotification.channel_id);
-                if (!channel) {
-                    console.error(`Channel not found for notification ${notification.id}`);
-                    return null;
-                }
-
-                targetType = 'channel';
-                targetId = currentNotification.channel_id;
-                guildId = currentNotification.guild_id;
-            } else {
-                // Private notification (DM) - verify user exists
-                if (!currentNotification.created_by) {
-                    console.error(`No user ID for private notification ${notification.id}`);
-                    return null;
-                }
-
-                const user = await this.client.users.fetch(currentNotification.created_by);
-                if (!user) {
-                    console.error(`User not found for private notification ${notification.id}`);
-                    return null;
-                }
-
-                targetType = 'user';
-                targetId = currentNotification.created_by;
-            }
-
-            return {
-                targetType,
-                targetId,
-                guildId,
-                messageContent,
-                embed
-            };
-
-        } catch (error) {
-            await handleError(null, null, error, `NotificationScheduler.prepareNotification - notification ${notification.id}`);
-            return null;
-        }
-    }
-
-    /**
-     * Send pre-prepared notification at exact time
-     * @param {Object} preparedPayload - Pre-prepared notification data
-     * @param {Object} notification - Original notification object
-     * @param {number} sendTime - The time this send is happening
-     * @param {number} scheduledTime - The original scheduled time
-     * @param {boolean} isLastSend - Whether this is the final send at scheduled time
-     */
-    async sendPreparedNotification(preparedPayload, notification, sendTime, scheduledTime, isLastSend) {
-        try {
-            // Re-fetch target from client to ensure proper token context (use .fetch() not .cache)
+            // Resolve target and send
             let target = null;
 
-            if (preparedPayload.targetType === 'channel') {
-                const guild = await this.client.guilds.fetch(preparedPayload.guildId);
+            if (currentNotification.guild_id && currentNotification.channel_id) {
+                // Server notification
+                const guild = await this.client.guilds.fetch(currentNotification.guild_id);
                 if (!guild) {
-                    throw new Error(`Guild ${preparedPayload.guildId} not found`);
+                    throw new Error(`Guild ${currentNotification.guild_id} not found`);
                 }
-                target = await guild.channels.fetch(preparedPayload.targetId);
+                target = await guild.channels.fetch(currentNotification.channel_id);
                 if (!target) {
-                    throw new Error(`Channel ${preparedPayload.targetId} not found`);
+                    throw new Error(`Channel ${currentNotification.channel_id} not found`);
                 }
-            } else if (preparedPayload.targetType === 'user') {
-                target = await this.client.users.fetch(preparedPayload.targetId);
+            } else if (currentNotification.created_by) {
+                // Private notification (DM)
+                target = await this.client.users.fetch(currentNotification.created_by);
                 if (!target) {
-                    throw new Error(`User ${preparedPayload.targetId} not found`);
+                    throw new Error(`User ${currentNotification.created_by} not found`);
                 }
             } else {
-                throw new Error(`Invalid target type: ${preparedPayload.targetType}`);
+                throw new Error(`No valid target for notification ${notification.id}`);
             }
 
-            // Send immediately (all prep work already done)
+            // Send the notification
             await target.send({
-                content: preparedPayload.messageContent,
-                embeds: preparedPayload.embed ? [preparedPayload.embed] : []
+                content: messageContent,
+                embeds: embed ? [embed] : []
             });
 
             // Only update database and reschedule on the LAST send (at scheduled time)
@@ -521,23 +442,7 @@ class NotificationScheduler {
             }
 
         } catch (error) {
-            await handleError(null, null, error, `NotificationScheduler.sendPreparedNotification - notification ${notification.id}`);
-        }
-    }
-
-    /**
-     * Send notification at a specific time (LEGACY - kept for compatibility)
-     * @deprecated Use prepareNotification + sendPreparedNotification instead
-     * @param {Object} notification - The notification to send
-     * @param {number} sendTime - The time this send is happening
-     * @param {number} scheduledTime - The original scheduled time
-     */
-    async sendNotificationAtTime(notification, sendTime, scheduledTime) {
-        const isLastSend = sendTime === scheduledTime;
-        const preparedPayload = await this.prepareNotification(notification, sendTime);
-
-        if (preparedPayload) {
-            await this.sendPreparedNotification(preparedPayload, notification, sendTime, scheduledTime, isLastSend);
+            await handleError(null, null, error, `NotificationScheduler.sendNotification - notification ${notification.id}`);
         }
     }
 
@@ -557,17 +462,31 @@ class NotificationScheduler {
 
 
             if (notification.repeat_status === 1 && notification.repeat_frequency) {
-                // Has repeat - calculate next trigger (ensure integer timestamps to avoid floating-point issues)
-                const frequency = Math.floor(notification.repeat_frequency);
-                nextTrigger = scheduledTime + frequency;
+                // Has repeat - calculate next trigger
+                let nextTriggerCalc;
 
+                if (this.isWeeklyRepeat(notification.repeat_frequency)) {
+                    // Weekly repeat - find next matching day after current time
+                    nextTriggerCalc = this.calculateNextWeeklyTrigger(
+                        notification.hour,
+                        notification.minute,
+                        this.parseWeeklyDays(notification.repeat_frequency),
+                        currentTime
+                    );
+                } else {
+                    // Seconds-based repeat (ensure integer timestamps)
+                    const frequency = Math.floor(notification.repeat_frequency);
+                    nextTriggerCalc = scheduledTime + frequency;
 
-                // Make sure next trigger is in the future (use math to avoid long loops)
-                if (nextTrigger < currentTime) {
-                    const timePassed = currentTime - scheduledTime;
-                    const missedOccurrences = Math.floor(timePassed / frequency);
-                    nextTrigger = scheduledTime + (frequency * (missedOccurrences + 1));
+                    // Make sure next trigger is in the future
+                    if (nextTriggerCalc < currentTime) {
+                        const timePassed = currentTime - scheduledTime;
+                        const missedOccurrences = Math.floor(timePassed / frequency);
+                        nextTriggerCalc = scheduledTime + (frequency * (missedOccurrences + 1));
+                    }
                 }
+
+                nextTrigger = nextTriggerCalc;
 
                 isActive = true; // Keep active
             } else {
@@ -672,6 +591,55 @@ class NotificationScheduler {
             }
             this.scheduledNotifications.delete(notificationId);
         }
+    }
+
+    /**
+     * Check if repeat_frequency is a weekly schedule
+     * @param {*} repeatFrequency - The repeat_frequency value from database
+     * @returns {boolean} True if weekly format
+     */
+    isWeeklyRepeat(repeatFrequency) {
+        return typeof repeatFrequency === 'string' && repeatFrequency.startsWith('weekly:');
+    }
+
+    /**
+     * Parse weekly days from repeat_frequency string
+     * @param {string} repeatFrequency - Format: "weekly:0,1,3,5"
+     * @returns {number[]} Array of day numbers (0=Sunday..6=Saturday)
+     */
+    parseWeeklyDays(repeatFrequency) {
+        return repeatFrequency.split(':')[1].split(',').map(Number);
+    }
+
+    /**
+     * Calculate the next trigger timestamp for a weekly schedule
+     * @param {number} hour - UTC hour (0-23)
+     * @param {number} minute - UTC minute (0-59)
+     * @param {number[]} days - Array of day numbers (0=Sunday..6=Saturday)
+     * @param {number} afterTimestamp - Unix timestamp after which to find the next trigger
+     * @returns {number|null} Next trigger Unix timestamp, or null if no valid day
+     */
+    calculateNextWeeklyTrigger(hour, minute, days, afterTimestamp) {
+        const after = new Date(afterTimestamp * 1000);
+
+        // Try each of the next 8 days to ensure we wrap around the week
+        for (let offset = 0; offset <= 7; offset++) {
+            const candidate = new Date(after);
+            candidate.setUTCDate(candidate.getUTCDate() + offset);
+            candidate.setUTCHours(hour, minute, 0, 0);
+
+            const candidateTimestamp = Math.floor(candidate.getTime() / 1000);
+
+            // Skip if this candidate is not in the future
+            if (candidateTimestamp <= afterTimestamp) continue;
+
+            // Check if this day matches a selected day
+            if (days.includes(candidate.getUTCDay())) {
+                return candidateTimestamp;
+            }
+        }
+
+        return null;
     }
 
     /**

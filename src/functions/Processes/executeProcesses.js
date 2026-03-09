@@ -9,7 +9,6 @@ const { handleError } = require('../utility/commonFunctions');
  */
 class ProcessExecutor {
     constructor() {
-        this.isExecuting = false;
         this.activeProcesses = new Map(); // Track actively executing processes
     }
 
@@ -114,6 +113,12 @@ class ProcessExecutor {
     async executeByAction(processData) {
         const { id: processId, action } = processData;
 
+        // Check for preemption before starting any action
+        const preemptionCheck = await this.checkForPreemption(processId);
+        if (preemptionCheck.shouldStop) {
+            return;
+        }
+
         switch (action) {
             case 'addplayer':
                 await this.executeAddPlayer(processId);
@@ -163,16 +168,7 @@ class ProcessExecutor {
             );
 
             // Start next process after failure
-            const nextProcess = await queueManager.startNextProcess();
-            if (nextProcess) {
-                setImmediate(() => {
-                    this.executeProcess({
-                        process_id: nextProcess.process_id,
-                        status: 'active',
-                        paused: null
-                    }).catch(() => { });
-                });
-            }
+            await queueManager.startNextProcess();
 
         } catch (failError) {
             systemLogQueries.addLog(
@@ -200,14 +196,9 @@ class ProcessExecutor {
                 return { shouldStop: true, reason: 'PROCESS_NOT_FOUND' };
             }
 
-            // Check if process was preempted
-            if (processData.status === PROCESS_STATUS.PAUSED && processData.preempted_by) {
-                return { shouldStop: true, reason: 'PREEMPTED' };
-            }
-
-            // Check if process status changed
+            // Check if process status changed (preempted processes are set back to queued)
             if (processData.status !== PROCESS_STATUS.ACTIVE) {
-                return { shouldStop: true, reason: 'STATUS_CHANGED' };
+                return { shouldStop: true, reason: processData.preempted_by ? 'PREEMPTED' : 'STATUS_CHANGED' };
             }
 
             return { shouldStop: false };
@@ -224,30 +215,17 @@ class ProcessExecutor {
      */
     async executeAddPlayer(processId) {
         try {
-            // Check for preemption before starting
-            const preemptionCheck = await this.checkForPreemption(processId);
-            if (preemptionCheck.shouldStop) {
-                return; // Exit cleanly without error
-            }
-
             const { processPlayerData } = require('../Players/fetchPlayerData');
             await processPlayerData(processId);
-
         } catch (error) {
             if (error.message === 'RATE_LIMIT' ||
                 error.message.includes('PAUSED_FOR_RATE_LIMIT')) {
-                throw error; // Re-throw expected errors
+                throw error;
             }
-
             systemLogQueries.addLog(
                 'error',
                 `Error executing add player process ${processId}`,
-                JSON.stringify({
-                    processId,
-                    error: error.message,
-                    stack: error.stack,
-                    function: 'executeAddPlayer'
-                })
+                JSON.stringify({ processId, error: error.message, stack: error.stack, function: 'executeAddPlayer' })
             );
             throw error;
         }
@@ -260,30 +238,16 @@ class ProcessExecutor {
      */
     async executeRefresh(processId) {
         try {
-            // Check for preemption before starting
-            const preemptionCheck = await this.checkForPreemption(processId);
-            if (preemptionCheck.shouldStop) {
-                return; // Exit cleanly without error
-            }
-
-            // Execute the same refresh logic as auto-refresh
             await executeAutoRefreshFunction(processId);
-
         } catch (error) {
             if (error.message === 'RATE_LIMIT' ||
                 error.message.includes('PAUSED_FOR_RATE_LIMIT')) {
-                throw error; // Re-throw expected errors
+                throw error;
             }
-
             systemLogQueries.addLog(
                 'error',
                 `Error executing refresh process ${processId}`,
-                JSON.stringify({
-                    processId,
-                    error: error.message,
-                    stack: error.stack,
-                    function: 'executeRefresh'
-                })
+                JSON.stringify({ processId, error: error.message, stack: error.stack, function: 'executeRefresh' })
             );
             throw error;
         }
@@ -296,30 +260,16 @@ class ProcessExecutor {
      */
     async executeAutoRefresh(processId) {
         try {
-            // Check for preemption before starting
-            const preemptionCheck = await this.checkForPreemption(processId);
-            if (preemptionCheck.shouldStop) {
-                return; // Exit cleanly without error
-            }
-
-            // Execute the auto-refresh function from refreshAlliance.js
             await executeAutoRefreshFunction(processId);
-
         } catch (error) {
             if (error.message === 'RATE_LIMIT' ||
                 error.message.includes('PAUSED_FOR_RATE_LIMIT')) {
-                throw error; // Re-throw expected errors
+                throw error;
             }
-
             systemLogQueries.addLog(
                 'error',
                 `Error executing auto refresh process ${processId}`,
-                JSON.stringify({
-                    processId,
-                    error: error.message,
-                    stack: error.stack,
-                    function: 'executeAutoRefresh'
-                })
+                JSON.stringify({ processId, error: error.message, stack: error.stack, function: 'executeAutoRefresh' })
             );
             throw error;
         }
@@ -333,20 +283,11 @@ class ProcessExecutor {
     async executeRedeemGiftcode(processId) {
         const { executeRedeemOperation } = require('../GiftCode/redeemFunction');
         try {
-            // Check for preemption before starting
-            const preemptionCheck = await this.checkForPreemption(processId);
-            if (preemptionCheck.shouldStop) {
-                return; // Exit cleanly without error
-            }
-
-            // Execute the redeem operation
             const result = await executeRedeemOperation(processId);
 
-            // Check if the operation was preempted
             if (result.preempted) {
-                return; // Exit cleanly without error
+                return;
             }
-
         } catch (error) {
             if (error.message === 'RATE_LIMIT' ||
                 error.message.includes('PAUSED_FOR_RATE_LIMIT')) {

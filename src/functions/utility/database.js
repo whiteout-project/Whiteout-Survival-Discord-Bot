@@ -313,6 +313,16 @@ try {
     } catch (e) {
         console.error('Database migration: failed to clean up invalid gift codes', e);
     }
+
+    // Ensure `auto_clean` column exists in id_channels (0 = disabled, >0 = interval in minutes)
+    try {
+        const idChCols = db.prepare('PRAGMA table_info(id_channels)').all();
+        if (!idChCols.some(c => c.name === 'auto_clean')) {
+            db.exec('ALTER TABLE id_channels ADD COLUMN auto_clean INTEGER DEFAULT 0');
+        }
+    } catch (e) {
+        console.error('Database migration: failed to add auto_clean column to id_channels', e);
+    }
 } catch (error) {
     console.error('FATAL: Database initialization failed:', error);
     process.exit(1);
@@ -455,7 +465,13 @@ const idChannelQueries = {
     deleteChannel: db.prepare('DELETE FROM id_channels WHERE id = ?'),
 
     // Get all channels
-    getAllChannels: db.prepare('SELECT * FROM id_channels')
+    getAllChannels: db.prepare('SELECT * FROM id_channels'),
+
+    // Update auto_clean interval
+    updateAutoClean: db.prepare('UPDATE id_channels SET auto_clean = ? WHERE id = ?'),
+
+    // Get channels with auto_clean enabled
+    getAutoCleanChannels: db.prepare('SELECT * FROM id_channels WHERE auto_clean > 0')
 };
 
 // Gift code channel queries
@@ -930,6 +946,19 @@ const processQueries = {
         WHERE id = ?
     `),
 
+    // Clear preempted_by without changing status (used when resuming a preempted process)
+    clearProcessPreemption: db.prepare(`
+        UPDATE processes 
+        SET preempted_by = NULL, updated_at = ?
+        WHERE id = ?
+    `),
+
+    // Get processes by action and target
+    getProcessesByActionAndTarget: db.prepare(`
+        SELECT * FROM processes
+        WHERE action = ? AND target = ? AND status NOT IN ('completed', 'failed')
+    `),
+
     // Complete process
     completeProcess: db.prepare(`
         UPDATE processes 
@@ -1146,7 +1175,9 @@ module.exports = {
         getChannelByChannelId: (channelId) => idChannelQueries.getChannelByChannelId.get(channelId),
         removeIdChannel: (id) => idChannelQueries.deleteChannel.run(id),
         deleteChannel: (id) => idChannelQueries.deleteChannel.run(id),
-        getAllChannels: () => idChannelQueries.getAllChannels.all()
+        getAllChannels: () => idChannelQueries.getAllChannels.all(),
+        updateAutoClean: (interval, id) => idChannelQueries.updateAutoClean.run(interval, id),
+        getAutoCleanChannels: () => idChannelQueries.getAutoCleanChannels.all()
     },
     giftCodeChannelQueries: {
         ...giftCodeChannelQueries,
@@ -1361,6 +1392,8 @@ module.exports = {
         updateProcessDetails: (id, details) => processQueries.updateProcessDetails.run(details, getCurrentTimestamp(), id),
         setProcessResumeTime: (id, resumeAfter) => processQueries.setProcessResumeTime.run(resumeAfter, getCurrentTimestamp(), id),
         setProcessPreemption: (id, preemptedBy) => processQueries.setProcessPreemption.run(preemptedBy, getCurrentTimestamp(), id),
+        clearProcessPreemption: (id) => processQueries.clearProcessPreemption.run(getCurrentTimestamp(), id),
+        getProcessesByActionAndTarget: (action, target) => processQueries.getProcessesByActionAndTarget.all(action, target),
         completeProcess: (id) => processQueries.completeProcess.run(getCurrentTimestamp(), getCurrentTimestamp(), id),
         failProcess: (id) => processQueries.failProcess.run(getCurrentTimestamp(), getCurrentTimestamp(), id),
         updateProcess: (id, action, target, status, priority, details, progress) =>

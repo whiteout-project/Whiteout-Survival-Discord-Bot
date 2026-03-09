@@ -7,6 +7,7 @@ const { createRemovePlayersButton } = require('./removePlayers');
 const { createViewPlayersButton } = require('./viewPlayers');
 const { createIdChannelButton } = require('./idChannel');
 const { createExportButton } = require('./export');
+const { createHistoryButton } = require('./history');
 const { getUserInfo, assertUserMatches, handleError, hasPermission } = require('../utility/commonFunctions');
 const { getComponentEmoji, getEmojiMapForUser } = require('../utility/emojis');
 
@@ -63,6 +64,7 @@ async function handlePlayerManagementButton(interaction) {
             .addComponents(
                 createIdChannelButton(interaction.user.id, lang),
                 createExportButton(interaction.user.id, lang),
+                createHistoryButton(interaction.user.id, lang),
                 createBackToPanelButton(interaction.user.id, lang)
             );
 

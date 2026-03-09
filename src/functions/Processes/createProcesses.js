@@ -202,7 +202,7 @@ async function getProcessById(processId) {
 /**
  * Updates process status
  * @param {number} processId - Process ID to update
- * @param {string} status - New status (queued, active, paused, completed, failed)
+ * @param {string} status - New status (queued, active, completed, failed)
  * @returns {Promise<boolean>} Success status
  */
 async function updateProcessStatus(processId, status) {
@@ -364,6 +364,60 @@ async function setProcessPreemption(processId, preemptedBy) {
 }
 
 /**
+ * Clears the preempted_by field without changing process status
+ * @param {number} processId - Process ID to clear preemption for
+ * @returns {Promise<boolean>} Success status
+ */
+async function clearProcessPreemption(processId) {
+    try {
+        processQueries.clearProcessPreemption(processId);
+        return true;
+    } catch (error) {
+        systemLogQueries.addLog(
+            'error',
+            `Error clearing process preemption for ${processId}`,
+            JSON.stringify({
+                processId,
+                error: error.message,
+                stack: error.stack,
+                function: 'clearProcessPreemption'
+            })
+        );
+        return false;
+    }
+}
+
+/**
+ * Gets active/queued processes by action and target
+ * @param {string} action - Process action type
+ * @param {string} target - Process target (e.g. alliance ID)
+ * @returns {Promise<Array>} Array of matching processes
+ */
+async function getProcessesByActionAndTarget(action, target) {
+    try {
+        const processes = processQueries.getProcessesByActionAndTarget(action, target);
+        return processes.map(process => {
+            process.details = JSON.parse(process.details);
+            process.progress = JSON.parse(process.progress);
+            return process;
+        });
+    } catch (error) {
+        systemLogQueries.addLog(
+            'error',
+            `Error getting processes by action ${action} and target ${target}`,
+            JSON.stringify({
+                action,
+                target,
+                error: error.message,
+                stack: error.stack,
+                function: 'getProcessesByActionAndTarget'
+            })
+        );
+        return [];
+    }
+}
+
+/**
  * Gets the next queued process by priority
  * @returns {Promise<Object|null>} Next process or null if queue is empty
  */
@@ -409,32 +463,6 @@ async function getActiveProcesses() {
                 error: error.message,
                 stack: error.stack,
                 function: 'getActiveProcesses'
-            })
-        );
-        return [];
-    }
-}
-
-/**
- * Gets paused processes ready to resume
- * @returns {Promise<Array>} Array of processes ready to resume
- */
-async function getPausedProcessesReadyToResume() {
-    try {
-        const processes = processQueries.getPausedProcessesReadyToResume();
-        return processes.map(process => {
-            process.details = JSON.parse(process.details);
-            process.progress = JSON.parse(process.progress);
-            return process;
-        });
-    } catch (error) {
-        systemLogQueries.addLog(
-            'error',
-            'Error getting paused processes ready to resume',
-            JSON.stringify({
-                error: error.message,
-                stack: error.stack,
-                function: 'getPausedProcessesReadyToResume'
             })
         );
         return [];
@@ -533,9 +561,10 @@ module.exports = {
     getProcessesByStatus,
     setProcessResumeTime,
     setProcessPreemption,
+    clearProcessPreemption,
     getNextQueuedProcess,
     getActiveProcesses,
-    getPausedProcessesReadyToResume,
+    getProcessesByActionAndTarget,
     hasHigherPriorityQueued,
     cleanupOldProcesses,
     resetCrashedProcesses,

@@ -4,6 +4,8 @@ const editPriority = require('../functions/Alliance/editPriority');
 const addPlayer = require('../functions/Players/addPlayer');
 const movePlayers = require('../functions/Players/movePlayers');
 const removePlayers = require('../functions/Players/removePlayers');
+const history = require('../functions/Players/history');
+const idChannel = require('../functions/Players/idChannel');
 const giftSetTestId = require('../functions/GiftCode/setTestId');
 const addGift = require('../functions/GiftCode/addGift');
 const createNotification = require('../functions/Notification/createNotification');
@@ -30,6 +32,12 @@ const formHandlers = [
     { pattern: /^player_id_modal_/, fn: addPlayer.handlePlayerIdModal },
     { pattern: /^move_players_ids_modal_/, fn: movePlayers.handleMovePlayersIdsModal },
     { pattern: /^remove_players_ids_modal_/, fn: removePlayers.handleRemovePlayersIdsModal },
+
+    // Player history search modal
+    { pattern: /^history_search_modal_/, fn: history.handleHistorySearchModal },
+
+    // ID Channel auto-clean modal
+    { pattern: /^id_channel_autoclean_modal_/, fn: idChannel.handleAutoCleanModal },
 
     // Gift Code modals
     { pattern: /^test_id_modal_/, fn: giftSetTestId.handleTestIdModal },

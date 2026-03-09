@@ -6,6 +6,7 @@ const { playerApiManager } = require('../functions/utility/apiClient');
 const { initializeNotificationScheduler } = require('../functions/Notification/notificationScheduler');
 const { initializeBackupScheduler } = require('../functions/Settings/backup/backupScheduler');
 const { initializeIdChannelCache } = require('../functions/Players/idChannel');
+const { autoCleanScheduler } = require('../functions/Players/idChannelAutoClean');
 const { initializeGiftCodeChannelCache } = require('../functions/GiftCode/giftCodeChannel');
 const { initializeEmojiPacks } = require('../functions/Settings/theme/emojisUploader');
 const { adminUsernameCache } = require('../functions/utility/adminUsernameCache');
@@ -100,6 +101,13 @@ module.exports = {
             await initializeIdChannelCache();
         } catch (error) {
             console.error('Failed to initialize ID channel cache:', error);
+        }
+
+        // Initialize ID channel auto-clean scheduler
+        try {
+            autoCleanScheduler.initialize(client);
+        } catch (error) {
+            console.error('Failed to initialize auto-clean scheduler:', error);
         }
 
         // Initialize gift code channel cache

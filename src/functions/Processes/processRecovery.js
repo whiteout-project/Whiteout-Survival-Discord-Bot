@@ -151,17 +151,11 @@ class ProcessRecovery {
 
             // Get all processes by status after reset
             const activeProcesses = await getProcessesByStatus(PROCESS_STATUS.ACTIVE);
-            const pausedProcesses = await getProcessesByStatus(PROCESS_STATUS.PAUSED);
 
 
             // Handle any remaining active processes (shouldn't be any after reset)
             for (const process of activeProcesses) {
                 await this.recoverActiveProcess(process);
-            }
-
-            // Handle paused processes
-            for (const process of pausedProcesses) {
-                await this.recoverPausedProcess(process);
             }
 
         } catch (error) {
@@ -208,8 +202,7 @@ class ProcessRecovery {
 
         } catch (error) {
             await handleError(null, null, error, 'handleCrashedProcess function', false);
-        } finally {
-            return false; // Error, no confirmation sent
+            return false;
         }
     }
 
@@ -486,8 +479,8 @@ class ProcessRecovery {
                 // Send confirmation to admin for manual intervention
                 await this.sendResumeConfirmation(process, progress);
 
-                // Move to paused status to await manual intervention
-                await updateProcessStatus(process.id, PROCESS_STATUS.PAUSED);
+                // Keep in queued status to await manual intervention
+                await updateProcessStatus(process.id, PROCESS_STATUS.QUEUED);
             } else if (totalProcessed === totalPlayers && totalPlayers > 0) {
                 // All players were processed, mark as completed
                 await updateProcessStatus(process.id, PROCESS_STATUS.COMPLETED);
@@ -498,47 +491,6 @@ class ProcessRecovery {
 
         } catch (error) {
             await handleError(null, null, error, 'recoverActiveProcess function', false);
-        }
-    }
-
-    /**
-     * Recovers a paused process
-     * @param {Object} process - Process data
-     * @returns {Promise<void>}
-     */
-    async recoverPausedProcess(process) {
-        try {
-            const resumeAfter = process.resume_after ? parseInt(process.resume_after) : null;
-            const currentTime = Date.now();
-
-            // Check if process was preempted
-            if (process.preempted_by) {
-                const preemptingProcess = await getProcessById(process.preempted_by);
-
-                if (preemptingProcess &&
-                    ![PROCESS_STATUS.COMPLETED, PROCESS_STATUS.FAILED].includes(preemptingProcess.status)) {
-                    return; // Still preempted, leave as-is
-                }
-            }
-
-            // Check if process is ready to resume based on time
-            if (resumeAfter && currentTime < resumeAfter) {
-                const remainingTime = resumeAfter - currentTime;
-
-                // Set up timer to check again later
-                setTimeout(async () => {
-                    try {
-                        await this.recoverPausedProcess(process);
-                    } catch (error) {
-                        // Error in delayed recovery
-                    }
-                }, remainingTime);
-
-                return;
-            }
-
-        } catch (error) {
-            await handleError(null, null, error, 'recoverPausedProcess function', false);
         }
     }
 

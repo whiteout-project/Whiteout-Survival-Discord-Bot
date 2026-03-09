@@ -414,7 +414,8 @@
                 "viewPlayers": "Voir",
                 "removePlayers": "Supprimer",
                 "export": "Exporter",
-                "idChannel": "Canal d'ID"
+                "idChannel": "Canal d'ID",
+                "history": "Historique"
             },
             "errors": {}
         },
@@ -444,6 +445,41 @@
                 "noAssignedAlliances": "{emoji.1050} Vous n'êtes assigné à aucune alliance.",
                 "noAvailableAlliances": "{emoji.1050} Aucune alliance avec des joueurs trouvée.",
                 "noPlayersInAlliance": "{emoji.1050} Aucun joueur trouvé dans cette alliance."
+            }
+        },
+        "history": {
+            "content": {
+                "title": "### {emoji.1044} Historique des Joueurs",
+                "typeDescription": "Sélectionnez le type de changements que vous souhaitez consulter.",
+                "allianceTitle": "### {emoji.1044} Sélectionner une Alliance",
+                "allianceDescription": "Choisissez une alliance pour voir l'historique des changements.",
+                "changesTitle": "### {emoji.1044} Historique {type} — {allianceName}",
+                "playerTitle": "### {emoji.1044} Historique {type} — {playerName} ({fid})",
+                "furnaceChange": "- **{nickname}** (`{fid}`)\n  - {oldLevel} → {newLevel}\n  - {date}",
+                "nicknameChange": "- **{nickname}** (`{fid}`)\n  - {oldNickname} → {newNickname}\n  - {date}"
+            },
+            "buttons": {
+                "furnace": "Fourneau",
+                "nickname": "Pseudo",
+                "search": "Rechercher par ID"
+            },
+            "selectMenu": {
+                "allianceSelect": {
+                    "placeholder": "Sélectionnez une alliance pour voir l'historique",
+                    "description": "Priorité: {alliancePriority}"
+                }
+            },
+            "modal": {
+                "title": "Rechercher l'Historique",
+                "label": "ID du Joueur",
+                "placeholder": "Entrez l'ID de jeu du joueur"
+            },
+            "errors": {
+                "noAlliances": "{emoji.1050} Vous n'êtes assigné à aucune alliance.",
+                "noChanges": "{emoji.1050} Aucun changement trouvé.",
+                "invalidId": "{emoji.1050} Veuillez entrer un ID de joueur numérique valide.",
+                "playerNotFound": "{emoji.1050} Ce joueur n'a pas été trouvé dans la base de données.",
+                "noAccessToPlayer": "{emoji.1050} Vous n'avez pas accès à l'alliance de ce joueur."
             }
         },
         "addPlayer": {
@@ -514,7 +550,7 @@
                 "title": "Ajouter des joueurs",
                 "playerIdInput": {
                     "label": "IDs des joueurs",
-                    "placeholder": "Entrez les IDs des joueurs (ex., 123456789,987654321)"
+                    "placeholder": "Un ID par ligne ou séparés par des virgules"
                 }
             },
             "selectMenu": {
@@ -577,7 +613,37 @@
             "buttons": {
                 "setChannel": "Définir",
                 "add": "Définir",
-                "remove": "Supprimer"
+                "remove": "Supprimer",
+                "autoClean": "Nettoyage auto"
+            },
+            "autoClean": {
+                "content": {
+                    "title": "### {emoji.1033} Nettoyage automatique",
+                    "description": "Sélectionnez un salon pour configurer le nettoyage automatique. Les messages seront supprimés automatiquement à l’intervalle défini.",
+                    "currentInterval": "Intervalle actuel : **{minutes} min**",
+                    "disabled": "Le nettoyage automatique est **désactivé** pour ce salon.",
+                    "setSuccess": "Le nettoyage automatique est défini à **{minutes} minutes** pour <#{channel}>.",
+                    "disableSuccess": "Le nettoyage automatique a été **désactivé** pour <#{channel}>."
+                },
+                "buttons": {
+                    "set": "Définir",
+                    "disable": "Désactiver"
+                },
+                "selectMenu": {
+                    "placeholder": "Sélectionnez un salon à configurer",
+                    "currentInterval": "Intervalle actuel : {minutes} min",
+                    "disabled": "Nettoyage automatique désactivé"
+                },
+                "modal": {
+                    "title": "Définir l’intervalle de nettoyage automatique",
+                    "label": "Intervalle en minutes",
+                    "placeholder": "ex. : 60"
+                },
+                "errors": {
+                    "noChannels": "{emoji.1050} Aucun salon ID trouvé.",
+                    "invalidInterval": "{emoji.1050} Veuillez entrer un nombre de minutes valide (minimum 1).",
+                    "channelNotFound": "{emoji.1050} Salon introuvable. Veuillez réessayer."
+                }
             },
             "errors": {
                 "noAlliances": "{emoji.1050} Aucune alliance trouvée. Veuillez créer une alliance d'abord.",
@@ -636,7 +702,7 @@
                 "title": "Déplacer des joueurs",
                 "playerIdInput": {
                     "label": "IDs des joueurs",
-                    "placeholder": "Entrez les IDs des joueurs (ex., 123456789,987654321)"
+                    "placeholder": "Un ID par ligne ou séparés par des virgules"
                 }
             },
             "selectMenu": {
@@ -700,7 +766,7 @@
                 "title": "Supprimer des joueurs",
                 "playerIdInput": {
                     "label": "IDs des joueurs",
-                    "placeholder": "Entrez les IDs des joueurs (ex., 123456789,987654321)"
+                    "placeholder": "Un ID par ligne ou séparés par des virgules"
                 }
             },
             "selectMenu": {
@@ -1193,6 +1259,8 @@
                 "repeatField": {
                     "name": "Répétition",
                     "enabled": "Toutes les {parts}",
+                    "weekly": "Hebdo : {days}",
+                    "weeklyDays": ["Dim", "Lun", "Mar", "Mer", "Jeu", "Ven", "Sam"],
                     "days": "{count}j",
                     "hours": "{count}h",
                     "minutes": "{count}min",
@@ -1488,6 +1556,7 @@
                 "every2Weeks": "2 sem",
                 "noRepeat": "Aucune",
                 "custom": "Perso",
+                "weekly": "Hebdo",
                 "updateTime": "Modifier"
             },
             "selectMenu": {
@@ -1499,6 +1568,18 @@
                     "label": "Modèle (X ou X,X,time)",
                     "description": "Les valeurs représentent les minutes avant l'heure programmée auxquelles la notification sera envoyée.",
                     "placeholder": "ex., 5 ou 5,10,time"
+                },
+                "weeklyRepeat": {
+                    "title": "Répétition hebdomadaire",
+                    "label": "Sélectionner les jours",
+                    "placeholder": "Choisir les jours de la semaine",
+                    "sunday": "Dimanche",
+                    "monday": "Lundi",
+                    "tuesday": "Mardi",
+                    "wednesday": "Mercredi",
+                    "thursday": "Jeudi",
+                    "friday": "Vendredi",
+                    "saturday": "Samedi"
                 },
                 "customRepeat": {
                     "title": "Intervalle perso",

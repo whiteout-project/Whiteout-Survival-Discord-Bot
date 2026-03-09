@@ -469,8 +469,8 @@ async function handlePlayerIdModal(interaction) {
  */
 function sanitizePlayerIds(rawInput) {
     try {
-        // Split by commas, then trim whitespace from each ID
-        const ids = rawInput.split(',').map(id => id.trim());
+        // Split by commas, newlines, or any combination (supports spreadsheet paste)
+        const ids = rawInput.split(/[,\n\r]+/).map(id => id.trim());
 
         // Validate each ID
         const validIds = [];

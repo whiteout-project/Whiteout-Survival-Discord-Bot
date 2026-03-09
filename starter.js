@@ -1345,6 +1345,12 @@ async function restartBot() {
             notificationScheduler.cleanup();
         } catch { /* ignore — scheduler may not be loaded yet */ }
 
+        // Cancel any pending auto-clean intervals before destroying the client.
+        try {
+            const { autoCleanScheduler } = require('./src/functions/Players/idChannelAutoClean');
+            autoCleanScheduler.cleanup();
+        } catch { /* ignore — scheduler may not be loaded yet */ }
+
         // Destroy the current client
         if (botClient) {
             console.log('Disconnecting client...');

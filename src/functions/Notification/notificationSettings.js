@@ -1,4 +1,4 @@
-const { ButtonBuilder, ButtonStyle, EmbedBuilder, ActionRowBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, ChannelSelectMenuBuilder, ChannelType, LabelBuilder } = require('discord.js');
+const { ButtonBuilder, ButtonStyle, EmbedBuilder, ActionRowBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, ChannelSelectMenuBuilder, ChannelType, LabelBuilder, StringSelectMenuBuilder, StringSelectMenuOptionBuilder } = require('discord.js');
 const { adminQueries, notificationQueries, systemLogQueries, adminLogQueries } = require('../utility/database');
 const { LOG_CODES } = require('../utility/AdminLogs');
 const { notificationScheduler } = require('./notificationScheduler');
@@ -497,7 +497,7 @@ async function handleRepeatButton(interaction) {
 }
 
 /**
- * Show custom repeat modal
+ * Show custom repeat modal with time interval fields and weekly days select
  */
 async function showCustomRepeatModal(interaction, notificationId) {
     const { lang } = getUserInfo(interaction.user.id);
@@ -549,18 +549,31 @@ async function showCustomRepeatModal(interaction, notificationId) {
         .setLabel(lang.notification.notificationSettings.modal.customRepeat.days)
         .setTextInputComponent(daysInput);
 
-    const monthsInput = new TextInputBuilder()
-        .setCustomId('repeat_months')
-        .setStyle(TextInputStyle.Short)
-        .setPlaceholder('0')
-        .setValue('0')
-        .setRequired(true);
+    // Weekly days multi-select (replaces months field)
+    const weeklyLang = lang.notification.notificationSettings.modal.weeklyRepeat;
+    const dayNames = [
+        { value: '0', label: weeklyLang.sunday },
+        { value: '1', label: weeklyLang.monday },
+        { value: '2', label: weeklyLang.tuesday },
+        { value: '3', label: weeklyLang.wednesday },
+        { value: '4', label: weeklyLang.thursday },
+        { value: '5', label: weeklyLang.friday },
+        { value: '6', label: weeklyLang.saturday }
+    ];
 
-    const monthsLabel = new LabelBuilder()
-        .setLabel(lang.notification.notificationSettings.modal.customRepeat.months)
-        .setTextInputComponent(monthsInput);
+    const weeklyDaysSelect = new StringSelectMenuBuilder()
+        .setCustomId('weekly_days')
+        .setPlaceholder(weeklyLang.placeholder)
+        .setRequired(false)
+        .setMinValues(0)
+        .setMaxValues(7)
+        .addOptions(dayNames.map(d => new StringSelectMenuOptionBuilder().setLabel(d.label).setValue(d.value)));
 
-    modal.addLabelComponents(secondsLabel, minutesLabel, hoursLabel, daysLabel, monthsLabel);
+    const weeklyDaysLabel = new LabelBuilder()
+        .setLabel(weeklyLang.label)
+        .setStringSelectMenuComponent(weeklyDaysSelect);
+
+    modal.addLabelComponents(secondsLabel, minutesLabel, hoursLabel, daysLabel, weeklyDaysLabel);
 
     await interaction.showModal(modal);
 }
@@ -582,15 +595,33 @@ async function handleCustomRepeatModal(interaction) {
         const minutes = parseInt(interaction.fields.getTextInputValue('repeat_minutes')) || 0;
         const hours = parseInt(interaction.fields.getTextInputValue('repeat_hours')) || 0;
         const days = parseInt(interaction.fields.getTextInputValue('repeat_days')) || 0;
-        const months = parseInt(interaction.fields.getTextInputValue('repeat_months')) || 0;
 
-        const totalSeconds = seconds + (minutes * 60) + (hours * 3600) + (days * 86400) + (months * 2592000);
+        // Check if weekly days were selected (multi-select menu)
+        let selectedWeeklyDays;
+        try {
+            selectedWeeklyDays = interaction.fields.getStringSelectValues('weekly_days');
+        } catch {
+            selectedWeeklyDays = [];
+        }
 
-        if (totalSeconds === 0) {
-            return await interaction.reply({
-                content: lang.notification.notificationSettings.errors.invalidRepeat,
-                ephemeral: true
-            });
+        let repeatFrequency;
+
+        if (selectedWeeklyDays && selectedWeeklyDays.length > 0) {
+            // Weekly repeat takes priority over interval fields
+            const sortedDays = selectedWeeklyDays.map(Number).sort((a, b) => a - b);
+            repeatFrequency = `weekly:${sortedDays.join(',')}`;
+        } else {
+            // Interval-based repeat
+            const totalSeconds = seconds + (minutes * 60) + (hours * 3600) + (days * 86400);
+
+            if (totalSeconds === 0) {
+                return await interaction.reply({
+                    content: lang.notification.notificationSettings.errors.invalidRepeat,
+                    ephemeral: true
+                });
+            }
+
+            repeatFrequency = totalSeconds;
         }
 
         const notification = notificationQueries.getNotificationById(parseInt(notificationId));
@@ -633,7 +664,7 @@ async function handleCustomRepeatModal(interaction) {
                 notification.pattern,
                 notification.mention,
                 1,
-                totalSeconds,
+                repeatFrequency,
                 notification.embed_toggle,
                 notification.is_active,
                 notification.last_trigger,
@@ -645,7 +676,7 @@ async function handleCustomRepeatModal(interaction) {
                 LOG_CODES.NOTIFICATION.REPEAT_SET,
                 JSON.stringify({
                     name: notification.name,
-                    repeatType: 'custom'
+                    repeatType: typeof repeatFrequency === 'string' ? 'weekly' : 'custom'
                 })
             );
 
@@ -1136,18 +1167,28 @@ async function showFinalConfirmation(interaction, notificationId, channel, lang)
     let repeatStr = 'No Repeat';
     if (notification.repeat_status === 1 && notification.repeat_frequency) {
         const freq = notification.repeat_frequency;
-        const days = Math.floor(freq / 86400);
-        const hours = Math.floor((freq % 86400) / 3600);
-        const minutes = Math.floor((freq % 3600) / 60);
-        const seconds = freq % 60;
 
-        const parts = [];
-        if (days > 0) parts.push(`${days}d`);
-        if (hours > 0) parts.push(`${hours}h`);
-        if (minutes > 0) parts.push(`${minutes}m`);
-        if (seconds > 0) parts.push(`${seconds}s`);
+        if (typeof freq === 'string' && freq.startsWith('weekly:')) {
+            // Weekly repeat - show day names
+            const dayNums = freq.split(':')[1].split(',').map(Number);
+            const dayNames = lang.notification.editNotification.content.repeatField.weeklyDays || ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+            const dayList = dayNums.map(d => dayNames[d]).join(', ');
+            repeatStr = (lang.notification.editNotification.content.repeatField.weekly || 'Weekly: {days}').replace('{days}', dayList);
+        } else {
+            const numFreq = Math.floor(freq);
+            const days = Math.floor(numFreq / 86400);
+            const hours = Math.floor((numFreq % 86400) / 3600);
+            const minutes = Math.floor((numFreq % 3600) / 60);
+            const seconds = numFreq % 60;
 
-        repeatStr = `Every ${parts.join(' ')}`;
+            const parts = [];
+            if (days > 0) parts.push(`${days}d`);
+            if (hours > 0) parts.push(`${hours}h`);
+            if (minutes > 0) parts.push(`${minutes}m`);
+            if (seconds > 0) parts.push(`${seconds}s`);
+
+            repeatStr = `Every ${parts.join(' ')}`;
+        }
     }
 
     // Create preview embed

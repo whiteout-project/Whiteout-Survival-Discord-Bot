@@ -33,6 +33,7 @@ const removePlayers = require('../functions/Players/removePlayers');
 const viewPlayers = require('../functions/Players/viewPlayers');
 const idChannel = require('../functions/Players/idChannel');
 const exportPlayers = require('../functions/Players/export');
+const history = require('../functions/Players/history');
 
 const createAlliance = require('../functions/Alliance/createAlliance');
 const editAlliance = require('../functions/Alliance/editAlliance');
@@ -187,6 +188,10 @@ const buttonHandlers = [
     { pattern: /^id_channel_remove_/, fn: idChannel.handleIdChannelRemove },
     { pattern: /^(id_channel_prev_|id_channel_next_)/, fn: idChannel.handleIdChannelPagination },
     { pattern: /^(id_channel_remove_prev_|id_channel_remove_next_)/, fn: idChannel.handleIdChannelRemovePagination },
+    { pattern: /^id_channel_autoclean_set_/, fn: idChannel.handleAutoCleanSetButton },
+    { pattern: /^id_channel_autoclean_disable_/, fn: idChannel.handleAutoCleanDisable },
+    { pattern: /^(id_channel_autoclean_prev_|id_channel_autoclean_next_)/, fn: idChannel.handleAutoCleanPagination },
+    { pattern: /^id_channel_autoclean_(?!set_|disable_|select_|prev_|next_)/, fn: idChannel.handleAutoCleanButton },
 
     // Move players
     { pattern: /^(move_players_target_prev_|move_players_target_next_)/, fn: movePlayers.handleMovePlayersTargetPagination },
@@ -219,6 +224,15 @@ const buttonHandlers = [
     { pattern: /^(export_state_prev_|export_state_next_)/, fn: exportPlayers.handleStatePagination },
     { pattern: /^(export_alliance_prev_|export_alliance_next_)/, fn: exportPlayers.handleAlliancePagination },
     { pattern: /^(export_furnace_prev_|export_furnace_next_)/, fn: exportPlayers.handleFurnacePagination },
+
+    // Player history
+    { pattern: /^history_type_/, fn: history.handleHistoryTypeButton },
+    { pattern: /^history_byid_/, fn: history.handleHistoryByIdButton },
+    { pattern: /^history_search_(?!modal_)/, fn: history.handleHistorySearchButton },
+    { pattern: /^(history_furnace_alliance_prev_|history_furnace_alliance_next_|history_nickname_alliance_prev_|history_nickname_alliance_next_)/, fn: history.handleHistoryAlliancePagination },
+    { pattern: /^(history_furnace_changes_prev_|history_furnace_changes_next_|history_nickname_changes_prev_|history_nickname_changes_next_)/, fn: history.handleHistoryChangesPagination },
+    { pattern: /^(history_furnace_player_prev_|history_furnace_player_next_|history_nickname_player_prev_|history_nickname_player_next_)/, fn: history.handleHistoryPlayerPagination },
+    { pattern: /^history_(?!type_|search_|furnace_|nickname_|byid_)/, fn: history.handleHistoryButton },
 
     // Admin management
     { pattern: /^manage_admins_/, fn: admin.handleManageAdminsButton },

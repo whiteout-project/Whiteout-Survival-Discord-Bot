@@ -336,18 +336,29 @@ async function showNotificationEditPanel(interaction, notification, lang, update
         let repeatStr = lang.notification.editNotification.content.repeatField.disabled;
         if (notification.repeat_status === 1 && notification.repeat_frequency) {
             const freq = notification.repeat_frequency;
-            const days = Math.floor(freq / 86400);
-            const hours = Math.floor((freq % 86400) / 3600);
-            const minutes = Math.floor((freq % 3600) / 60);
-            const seconds = freq % 60;
 
-            const parts = [];
-            if (days > 0) parts.push(lang.notification.editNotification.content.repeatField.days.replace('{count}', days));
-            if (hours > 0) parts.push(lang.notification.editNotification.content.repeatField.hours.replace('{count}', hours));
-            if (minutes > 0) parts.push(lang.notification.editNotification.content.repeatField.minutes.replace('{count}', minutes));
-            if (seconds > 0) parts.push(lang.notification.editNotification.content.repeatField.seconds.replace('{count}', seconds));
+            if (typeof freq === 'string' && freq.startsWith('weekly:')) {
+                // Weekly repeat - show day names
+                const dayNums = freq.split(':')[1].split(',').map(Number);
+                const dayNames = lang.notification.editNotification.content.repeatField.weeklyDays || ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+                const dayList = dayNums.map(d => dayNames[d]).join(', ');
+                repeatStr = (lang.notification.editNotification.content.repeatField.weekly || 'Weekly: {days}').replace('{days}', dayList);
+            } else {
+                // Seconds-based repeat
+                const numFreq = Math.floor(freq);
+                const days = Math.floor(numFreq / 86400);
+                const hours = Math.floor((numFreq % 86400) / 3600);
+                const minutes = Math.floor((numFreq % 3600) / 60);
+                const seconds = numFreq % 60;
 
-            repeatStr = lang.notification.editNotification.content.repeatField.enabled.replace('{parts}', parts.join(' '));
+                const parts = [];
+                if (days > 0) parts.push(lang.notification.editNotification.content.repeatField.days.replace('{count}', days));
+                if (hours > 0) parts.push(lang.notification.editNotification.content.repeatField.hours.replace('{count}', hours));
+                if (minutes > 0) parts.push(lang.notification.editNotification.content.repeatField.minutes.replace('{count}', minutes));
+                if (seconds > 0) parts.push(lang.notification.editNotification.content.repeatField.seconds.replace('{count}', seconds));
+
+                repeatStr = lang.notification.editNotification.content.repeatField.enabled.replace('{parts}', parts.join(' '));
+            }
         }
 
         // Parse mentions for preview
@@ -506,7 +517,7 @@ async function showNotificationEditPanel(interaction, notification, lang, update
  * Handle Info button - opens modal to edit name and trigger time
  */
 async function handleInfoButton(interaction) {
-    const { lang } = getUserInfo(interaction.user.id);
+    const { adminData, lang } = getUserInfo(interaction.user.id);
 
     try {
         const parts = interaction.customId.split('_');
@@ -602,7 +613,7 @@ async function handleInfoButton(interaction) {
  * Handle Info modal submission - validates and updates notification info
  */
 async function handleInfoModal(interaction) {
-    const { lang } = getUserInfo(interaction.user.id);
+    const { adminData, lang } = getUserInfo(interaction.user.id);
 
     try {
         const parts = interaction.customId.split('_');
@@ -832,7 +843,7 @@ async function handleContentButton(interaction) {
  * @param {string} type - 'repeat' or 'pattern'
  */
 async function handleSettingsButtonFromEdit(interaction, type = 'repeat') {
-    const { lang } = getUserInfo(interaction.user.id);
+    const { adminData ,lang } = getUserInfo(interaction.user.id);
 
     try {
         const parts = interaction.customId.split('_');
@@ -899,7 +910,7 @@ async function handlePatternButtonFromEdit(interaction) {
  * Handle Save button - updates message, deletes after 3 seconds
  */
 async function handleSaveButton(interaction) {
-    const { lang } = getUserInfo(interaction.user.id);
+    const { adminData ,lang } = getUserInfo(interaction.user.id);
 
     try {
         const parts = interaction.customId.split('_');
@@ -974,7 +985,7 @@ async function handleSaveButton(interaction) {
  * Handle Disable button - clears next_trigger and removes from scheduler
  */
 async function handleDisableButton(interaction) {
-    const { lang } = getUserInfo(interaction.user.id);
+    const { adminData ,lang } = getUserInfo(interaction.user.id);
 
     try {
         const parts = interaction.customId.split('_');

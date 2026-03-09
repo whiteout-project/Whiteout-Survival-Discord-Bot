@@ -20,7 +20,9 @@ const API_CONFIG = {
     UPDATE_INTERVAL: 10, // Update embed every 10 processed players
     BETWEEN_REDEMPTIONS_DELAY: 1000, // 1s minimum spacing between captcha fetch requests
     MEMBER_PROCESS_DELAY_MIN: 700,   // min inter-player delay ms 
-    MEMBER_PROCESS_DELAY_MAX: 1300   // max inter-player delay ms 
+    MEMBER_PROCESS_DELAY_MAX: 1300,  // max inter-player delay ms 
+    MAX_RETRY_CYCLES: 5,            // max retry cycles per player for rate limits / captcha exhaustion
+    CAPTCHA_CYCLE_COOLDOWN: 30000   // 30s cooldown before re-attempting a captcha-exhausted player
 };
 
 const GIFT_CODE_API_CONFIG = {

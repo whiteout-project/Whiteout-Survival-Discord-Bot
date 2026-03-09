@@ -11,6 +11,7 @@ const removePlayers = require('../functions/Players/removePlayers');
 const viewPlayers = require('../functions/Players/viewPlayers');
 const idChannel = require('../functions/Players/idChannel');
 const exportPlayers = require('../functions/Players/export');
+const history = require('../functions/Players/history');
 const redeemGift = require('../functions/GiftCode/redeemGift');
 const removeGift = require('../functions/GiftCode/removeGift');
 const autoRedeem = require('../functions/GiftCode/autoRedeem');
@@ -59,6 +60,7 @@ const dropdownHandlers = [
     { type: 'string', pattern: /^alliance_select_add_player_/, fn: addPlayer.handleAllianceSelection },
     { type: 'string', pattern: /^id_channel_alliance_select_/, fn: idChannel.handleIdChannelAllianceSelection },
     { type: 'string', pattern: /^id_channel_remove_select_/, fn: idChannel.handleIdChannelRemoveSelect },
+    { type: 'string', pattern: /^id_channel_autoclean_select_/, fn: idChannel.handleAutoCleanSelect },
 
     // Move players selections
     { type: 'string', pattern: /^move_players_target_select_/, fn: movePlayers.handleMovePlayersTargetSelection },
@@ -76,6 +78,9 @@ const dropdownHandlers = [
     { type: 'string', pattern: /^export_state_select_/, fn: exportPlayers.handleStateSelection },
     { type: 'string', pattern: /^export_alliance_select_/, fn: exportPlayers.handleAllianceSelection },
     { type: 'string', pattern: /^export_furnace_select_/, fn: exportPlayers.handleFurnaceSelection },
+
+    // Player history selections
+    { type: 'string', pattern: /^history_alliance_/, fn: history.handleHistoryAllianceSelection },
 
     // Manual redeem selections
     { type: 'string', pattern: /^manual_redeem_alliance_select_/, fn: redeemGift.handleAllianceSelection },

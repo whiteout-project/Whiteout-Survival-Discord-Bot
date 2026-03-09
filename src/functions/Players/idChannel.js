@@ -10,7 +10,11 @@ const {
     MessageFlags,
     TextDisplayBuilder,
     SeparatorBuilder,
-    SeparatorSpacingSize
+    SeparatorSpacingSize,
+    ModalBuilder,
+    TextInputBuilder,
+    TextInputStyle,
+    LabelBuilder
 } = require('discord.js');
 const { allianceQueries, idChannelQueries, giftCodeChannelQueries, adminLogQueries } = require('../utility/database');
 const { LOG_CODES } = require('../utility/AdminLogs');
@@ -116,16 +120,22 @@ async function handleIdChannelButton(interaction) {
         const addButton = new ButtonBuilder()
             .setCustomId(`id_channel_add_${interaction.user.id}`)
             .setLabel(lang.players.idChannel.buttons.add)
-            .setStyle(ButtonStyle.Success)
+            .setStyle(ButtonStyle.Secondary)
             .setEmoji(getComponentEmoji(getEmojiMapForUser(interaction.user.id), '1000'));
 
         const removeButton = new ButtonBuilder()
             .setCustomId(`id_channel_remove_${interaction.user.id}`)
             .setLabel(lang.players.idChannel.buttons.remove)
-            .setStyle(ButtonStyle.Danger)
+            .setStyle(ButtonStyle.Secondary)
             .setEmoji(getComponentEmoji(getEmojiMapForUser(interaction.user.id), '1031'));
 
-        const row = new ActionRowBuilder().addComponents(addButton, removeButton);
+        const autoCleanButton = new ButtonBuilder()
+            .setCustomId(`id_channel_autoclean_${interaction.user.id}`)
+            .setLabel(lang.players.idChannel.buttons.autoClean)
+            .setStyle(ButtonStyle.Secondary)
+            .setEmoji(getComponentEmoji(getEmojiMapForUser(interaction.user.id), '1033'));
+
+        const row = new ActionRowBuilder().addComponents(addButton, removeButton, autoCleanButton);
 
         const container = [
             new ContainerBuilder()
@@ -907,6 +917,338 @@ function sanitizePlayerIds(rawInput) {
     }
 }
 
+// ─── Auto Clean Feature ───────────────────────────────────────────────────────
+
+/**
+ * Handles the Auto Clean button - shows channel selection
+ * @param {import('discord.js').ButtonInteraction} interaction
+ */
+async function handleAutoCleanButton(interaction) {
+    const { adminData, lang } = getUserInfo(interaction.user.id);
+    try {
+        const expectedUserId = interaction.customId.split('_')[3]; // id_channel_autoclean_userId
+        if (!(await assertUserMatches(interaction, expectedUserId, lang))) return;
+
+        const hasAccess = hasPermission(adminData, PERMISSIONS.FULL_ACCESS, PERMISSIONS.PLAYER_MANAGEMENT);
+        if (!hasAccess) {
+            return await interaction.reply({ content: lang.common.noPermission, ephemeral: true });
+        }
+
+        const idChannels = getIdChannelsForUser(adminData);
+        if (idChannels.length === 0) {
+            return await interaction.reply({ content: lang.players.idChannel.autoClean.errors.noChannels, ephemeral: true });
+        }
+
+        const { components } = createAutoCleanChannelSelection(interaction, idChannels, lang, 0);
+
+        await interaction.update({
+            components: components,
+            flags: MessageFlags.IsComponentsV2
+        });
+    } catch (error) {
+        await handleError(interaction, lang, error, 'handleAutoCleanButton');
+    }
+}
+
+/**
+ * Creates the auto-clean channel selection container with pagination
+ * @param {import('discord.js').Interaction} interaction
+ * @param {Array} idChannels - Array of ID channel objects
+ * @param {Object} lang - Language object
+ * @param {number} page - Current page
+ * @returns {Object} { components }
+ */
+function createAutoCleanChannelSelection(interaction, idChannels, lang, page = 0) {
+    const itemsPerPage = 24;
+    const totalPages = Math.ceil(idChannels.length / itemsPerPage);
+    const startIndex = page * itemsPerPage;
+    const currentPageChannels = idChannels.slice(startIndex, startIndex + itemsPerPage);
+
+    const options = currentPageChannels.map(channel => {
+        const discordChannel = interaction.guild.channels.cache.get(channel.channel_id);
+        const channelName = discordChannel ? discordChannel.name : 'Unknown Channel';
+        const statusText = channel.auto_clean > 0
+            ? lang.players.idChannel.autoClean.selectMenu.currentInterval.replace('{minutes}', channel.auto_clean)
+            : lang.players.idChannel.autoClean.selectMenu.disabled;
+        return {
+            label: `${channel.alliance_name} - #${channelName}`,
+            value: channel.id.toString(),
+            description: statusText,
+            emoji: getComponentEmoji(getEmojiMapForUser(interaction.user.id), '1014')
+        };
+    });
+
+    const selectMenu = new StringSelectMenuBuilder()
+        .setCustomId(`id_channel_autoclean_select_${interaction.user.id}_${page}`)
+        .setPlaceholder(lang.players.idChannel.autoClean.selectMenu.placeholder)
+        .addOptions(options);
+
+    const selectRow = new ActionRowBuilder().addComponents(selectMenu);
+
+    const paginationRow = totalPages > 1
+        ? createUniversalPaginationButtons({
+            feature: 'id_channel_autoclean',
+            userId: interaction.user.id,
+            currentPage: page,
+            totalPages: totalPages,
+            lang: lang
+        })
+        : null;
+
+    const container = new ContainerBuilder()
+        .setAccentColor(0x3498db)
+        .addTextDisplayComponents(
+            new TextDisplayBuilder().setContent(
+                `${lang.players.idChannel.autoClean.content.title}\n${lang.players.idChannel.autoClean.content.description}`
+            )
+        )
+        .addSeparatorComponents(
+            new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true)
+        )
+        .addActionRowComponents(selectRow);
+
+    if (paginationRow) container.addActionRowComponents(paginationRow);
+
+    const components = updateComponentsV2AfterSeparator(interaction, [container]);
+    return { components };
+}
+
+/**
+ * Handles auto-clean channel selection pagination
+ * @param {import('discord.js').ButtonInteraction} interaction
+ */
+async function handleAutoCleanPagination(interaction) {
+    const { adminData, lang } = getUserInfo(interaction.user.id);
+    try {
+        const { userId: expectedUserId, newPage } = parsePaginationCustomId(interaction.customId, 0);
+        if (!(await assertUserMatches(interaction, expectedUserId, lang))) return;
+
+        const idChannels = getIdChannelsForUser(adminData);
+        if (idChannels.length === 0) {
+            return await interaction.reply({ content: lang.players.idChannel.autoClean.errors.noChannels, ephemeral: true });
+        }
+
+        const { components } = createAutoCleanChannelSelection(interaction, idChannels, lang, newPage);
+
+        await interaction.update({
+            components: components,
+            flags: MessageFlags.IsComponentsV2
+        });
+    } catch (error) {
+        await handleError(interaction, lang, error, 'handleAutoCleanPagination');
+    }
+}
+
+/**
+ * Handles auto-clean channel dropdown selection - shows Set/Disable buttons
+ * @param {import('discord.js').StringSelectMenuInteraction} interaction
+ */
+async function handleAutoCleanSelect(interaction) {
+    const { adminData, lang } = getUserInfo(interaction.user.id);
+    try {
+        const parts = interaction.customId.split('_'); // id_channel_autoclean_select_userId_page
+        const expectedUserId = parts[4];
+        if (!(await assertUserMatches(interaction, expectedUserId, lang))) return;
+
+        const hasAccess = hasPermission(adminData, PERMISSIONS.FULL_ACCESS, PERMISSIONS.PLAYER_MANAGEMENT);
+        if (!hasAccess) {
+            return await interaction.reply({ content: lang.common.noPermission, ephemeral: true });
+        }
+
+        const channelDbId = interaction.values[0];
+        const channelData = idChannelQueries.getChannelById(parseInt(channelDbId));
+        if (!channelData) {
+            return await interaction.reply({ content: lang.players.idChannel.autoClean.errors.channelNotFound, ephemeral: true });
+        }
+
+        const discordChannel = interaction.guild.channels.cache.get(channelData.channel_id);
+        const channelName = discordChannel ? discordChannel.name : 'Unknown Channel';
+        const currentInterval = channelData.auto_clean || 0;
+
+        const statusText = currentInterval > 0
+            ? lang.players.idChannel.autoClean.content.currentInterval.replace('{minutes}', currentInterval)
+            : lang.players.idChannel.autoClean.content.disabled;
+
+        const setButton = new ButtonBuilder()
+            .setCustomId(`id_channel_autoclean_set_${channelDbId}_${interaction.user.id}`)
+            .setLabel(lang.players.idChannel.autoClean.buttons.set)
+            .setStyle(ButtonStyle.Success)
+            .setEmoji(getComponentEmoji(getEmojiMapForUser(interaction.user.id), '1004'));
+
+        const disableButton = new ButtonBuilder()
+            .setCustomId(`id_channel_autoclean_disable_${channelDbId}_${interaction.user.id}`)
+            .setLabel(lang.players.idChannel.autoClean.buttons.disable)
+            .setStyle(ButtonStyle.Danger)
+            .setDisabled(currentInterval === 0)
+            .setEmoji(getComponentEmoji(getEmojiMapForUser(interaction.user.id), '1051'));
+
+        const row = new ActionRowBuilder().addComponents(setButton, disableButton);
+
+        const container = [
+            new ContainerBuilder()
+                .setAccentColor(0x3498db)
+                .addTextDisplayComponents(
+                    new TextDisplayBuilder().setContent(
+                        `${lang.players.idChannel.autoClean.content.title}\n**#${channelName}**\n${statusText}`
+                    )
+                )
+                .addSeparatorComponents(
+                    new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true)
+                )
+                .addActionRowComponents(row)
+        ];
+
+        const content = updateComponentsV2AfterSeparator(interaction, container);
+        await interaction.update({ components: content, flags: MessageFlags.IsComponentsV2 });
+    } catch (error) {
+        await handleError(interaction, lang, error, 'handleAutoCleanSelect');
+    }
+}
+
+/**
+ * Handles the Set button — shows modal with interval input
+ * @param {import('discord.js').ButtonInteraction} interaction
+ */
+async function handleAutoCleanSetButton(interaction) {
+    const { lang } = getUserInfo(interaction.user.id);
+    try {
+        const parts = interaction.customId.split('_'); // id_channel_autoclean_set_channelDbId_userId
+        const channelDbId = parts[4];
+        const expectedUserId = parts[5];
+        if (!(await assertUserMatches(interaction, expectedUserId, lang))) return;
+
+        const channelData = idChannelQueries.getChannelById(parseInt(channelDbId));
+        const currentInterval = channelData?.auto_clean || 0;
+
+        const modal = new ModalBuilder()
+            .setCustomId(`id_channel_autoclean_modal_${channelDbId}_${interaction.user.id}`)
+            .setTitle(lang.players.idChannel.autoClean.modal.title);
+
+        const intervalInput = new TextInputBuilder()
+            .setCustomId('auto_clean_interval')
+            .setPlaceholder(lang.players.idChannel.autoClean.modal.placeholder)
+            .setStyle(TextInputStyle.Short)
+            .setRequired(true)
+            .setMaxLength(6);
+
+        if (currentInterval > 0) {
+            intervalInput.setValue(String(currentInterval));
+        }
+
+        const label = new LabelBuilder()
+            .setLabel(lang.players.idChannel.autoClean.modal.label)
+            .setTextInputComponent(intervalInput);
+
+        modal.addLabelComponents(label);
+        await interaction.showModal(modal);
+    } catch (error) {
+        await handleError(interaction, lang, error, 'handleAutoCleanSetButton');
+    }
+}
+
+/**
+ * Handles the auto-clean modal submission
+ * @param {import('discord.js').ModalSubmitInteraction} interaction
+ */
+async function handleAutoCleanModal(interaction) {
+    const { adminData, lang } = getUserInfo(interaction.user.id);
+    try {
+        const parts = interaction.customId.split('_'); // id_channel_autoclean_modal_channelDbId_userId
+        const channelDbId = parseInt(parts[4]);
+        const expectedUserId = parts[5];
+        if (!(await assertUserMatches(interaction, expectedUserId, lang))) return;
+
+        const hasAccess = hasPermission(adminData, PERMISSIONS.FULL_ACCESS, PERMISSIONS.PLAYER_MANAGEMENT);
+        if (!hasAccess) {
+            return await interaction.reply({ content: lang.common.noPermission, ephemeral: true });
+        }
+
+        const rawInterval = interaction.fields.getTextInputValue('auto_clean_interval');
+        const interval = parseInt(rawInterval, 10);
+
+        if (isNaN(interval) || interval < 1) {
+            return await interaction.reply({
+                content: lang.players.idChannel.autoClean.errors.invalidInterval,
+                ephemeral: true
+            });
+        }
+
+        const channelData = idChannelQueries.getChannelById(channelDbId);
+        if (!channelData) {
+            return await interaction.reply({ content: lang.players.idChannel.autoClean.errors.channelNotFound, ephemeral: true });
+        }
+
+        idChannelQueries.updateAutoClean(interval, channelDbId);
+
+        // Update the scheduler
+        const { autoCleanScheduler } = require('./idChannelAutoClean');
+        autoCleanScheduler.scheduleChannel(channelData.channel_id, interval);
+
+        const container = [
+            new ContainerBuilder()
+                .setAccentColor(0x00ff00)
+                .addTextDisplayComponents(
+                    new TextDisplayBuilder().setContent(
+                        lang.players.idChannel.autoClean.content.setSuccess
+                            .replace('{minutes}', interval)
+                            .replace('{channel}', channelData.channel_id)
+                    )
+                )
+        ];
+
+        const content = updateComponentsV2AfterSeparator(interaction, container);
+        await interaction.update({ components: content, flags: MessageFlags.IsComponentsV2 });
+    } catch (error) {
+        await handleError(interaction, lang, error, 'handleAutoCleanModal');
+    }
+}
+
+/**
+ * Handles the Disable button — sets auto_clean to 0
+ * @param {import('discord.js').ButtonInteraction} interaction
+ */
+async function handleAutoCleanDisable(interaction) {
+    const { adminData, lang } = getUserInfo(interaction.user.id);
+    try {
+        const parts = interaction.customId.split('_'); // id_channel_autoclean_disable_channelDbId_userId
+        const channelDbId = parseInt(parts[4]);
+        const expectedUserId = parts[5];
+        if (!(await assertUserMatches(interaction, expectedUserId, lang))) return;
+
+        const hasAccess = hasPermission(adminData, PERMISSIONS.FULL_ACCESS, PERMISSIONS.PLAYER_MANAGEMENT);
+        if (!hasAccess) {
+            return await interaction.reply({ content: lang.common.noPermission, ephemeral: true });
+        }
+
+        const channelData = idChannelQueries.getChannelById(channelDbId);
+        if (!channelData) {
+            return await interaction.reply({ content: lang.players.idChannel.autoClean.errors.channelNotFound, ephemeral: true });
+        }
+
+        idChannelQueries.updateAutoClean(0, channelDbId);
+
+        // Remove from scheduler
+        const { autoCleanScheduler } = require('./idChannelAutoClean');
+        autoCleanScheduler.cancelChannel(channelData.channel_id);
+
+        const container = [
+            new ContainerBuilder()
+                .setAccentColor(0xff0000)
+                .addTextDisplayComponents(
+                    new TextDisplayBuilder().setContent(
+                        lang.players.idChannel.autoClean.content.disableSuccess
+                            .replace('{channel}', channelData.channel_id)
+                    )
+                )
+        ];
+
+        const content = updateComponentsV2AfterSeparator(interaction, container);
+        await interaction.update({ components: content, flags: MessageFlags.IsComponentsV2 });
+    } catch (error) {
+        await handleError(interaction, lang, error, 'handleAutoCleanDisable');
+    }
+}
+
 module.exports = {
     createIdChannelButton,
     handleIdChannelButton,
@@ -919,5 +1261,11 @@ module.exports = {
     handleIdChannelSelect,
     handleIdChannelMessage,
     initializeIdChannelCache,
-    updateIdChannelCache
+    updateIdChannelCache,
+    handleAutoCleanButton,
+    handleAutoCleanPagination,
+    handleAutoCleanSelect,
+    handleAutoCleanSetButton,
+    handleAutoCleanModal,
+    handleAutoCleanDisable
 };

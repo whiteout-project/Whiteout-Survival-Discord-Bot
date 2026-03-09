@@ -743,11 +743,13 @@ async function handleRemovePlayersIdsModal(interaction) {
 function sanitizePlayerIds(input) {
     if (!input || typeof input !== 'string') return null;
 
-    // Remove all non-digit and non-comma characters, then clean up commas
+    // Split by commas, newlines, or any combination (supports spreadsheet paste)
+    // then keep only digit-only tokens
     const cleaned = input
-        .replace(/[^0-9,]/g, '') // Keep only digits and commas
-        .replace(/,+/g, ',')      // Replace multiple commas with single comma
-        .replace(/^,|,$/g, '');   // Remove leading/trailing commas
+        .split(/[,\n\r]+/)
+        .map(s => s.trim())
+        .filter(s => /^\d+$/.test(s))
+        .join(',');
 
     // Validate: must contain at least one digit
     if (!/\d/.test(cleaned)) return null;

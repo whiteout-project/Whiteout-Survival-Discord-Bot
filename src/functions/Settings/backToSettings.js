@@ -28,14 +28,6 @@ async function handleBackToSettingsButton(interaction) {
         // Check if the interaction user matches the expected user
         if (!(await assertUserMatches(interaction, expectedUserId, lang))) return;
 
-        // Check if user is an admin
-        if (!adminData) {
-            return await interaction.reply({
-                content: lang.common.noPermission,
-                ephemeral: true
-            });
-        }
-
         // Create settings components
         const { createSettingsComponents } = require('./settings');
         const settingsComponents = createSettingsComponents(interaction, adminData, lang);
