@@ -20,7 +20,7 @@ const { createUniversalPaginationButtons, parsePaginationCustomId } = require('.
 const { showNotificationEditPanel } = require('./editNotification');
 const { notificationQueries, scheduleBoardQueries } = require('../utility/database');
 
-const ITEMS_PER_PAGE = 5;
+const ITEMS_PER_PAGE = 3;
 
 /**
  * Creates the Schedule View button for the notification main page
