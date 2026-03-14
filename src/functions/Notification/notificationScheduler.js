@@ -278,6 +278,24 @@ class NotificationScheduler {
             timeoutIds.push(timeoutId);
         }
 
+        // If the scheduled time is not in sendTimes (pattern-only, no "time" keyword),
+        // schedule a silent completion at the trigger time to update DB/board/reschedule
+        if (!sendTimes.includes(scheduledTime)) {
+            const completionDelayMs = (scheduledTime - currentTime) * 1000;
+            if (completionDelayMs > 0) {
+                hasValidSchedule = true;
+                const completionId = setTimeout(async () => {
+                    try {
+                        if (this.scheduleGenerations.get(notificationId) !== generationId) return;
+                        await this.handleNotificationCompletion(notification, scheduledTime);
+                    } catch (error) {
+                        await handleError(null, null, error, `NotificationScheduler.completionTimeout - notification ${notification.id}`);
+                    }
+                }, completionDelayMs);
+                timeoutIds.push(completionId);
+            }
+        }
+
         if (!hasValidSchedule) {
             // All send times have passed
             if (notification.repeat_status === 1 && notification.repeat_frequency) {

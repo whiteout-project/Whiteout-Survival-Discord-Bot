@@ -330,6 +330,16 @@ try {
         console.error('Database migration: failed to clean up invalid gift codes', e);
     }
 
+    // Clean up leftover "process" and "recovery" action_type entries from system_logs
+    try {
+        const deleted = db.prepare(`DELETE FROM system_logs WHERE action_type IN ('process', 'recovery')`).run();
+        if (deleted.changes > 0) {
+            console.log(`Database migration: removed ${deleted.changes} leftover process/recovery system log(s)`);
+        }
+    } catch (e) {
+        console.error('Database migration: failed to clean up process/recovery system logs', e);
+    }
+
     // Ensure `auto_clean` column exists in id_channels (0 = disabled, >0 = interval in minutes)
     try {
         const idChCols = db.prepare('PRAGMA table_info(id_channels)').all();
