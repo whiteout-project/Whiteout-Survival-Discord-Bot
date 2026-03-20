@@ -33,6 +33,10 @@ const PROGRESS_EMBED_COLOR_COMPLETE = 0x2ecc71;
 const PROGRESS_EMBED_COLOR_FAILED = 0xe74c3c;
 const ABORTABLE_STATUSES = new Set(['USED', 'TIME ERROR', 'CDK NOT FOUND']);
 
+// In-memory lock to prevent TOCTOU race between duplicate check and createProcess
+// Key format: "allianceId:giftCode"
+const pendingRedeemCreations = new Set();
+
 // Rate limit tracking — 30 requests per 60-second window per endpoint
 const RATE_LIMIT_WINDOW = 60000;
 const RATE_LIMIT_PER_WINDOW = 30;
@@ -603,6 +607,17 @@ async function createRedeemProcess(redeemData, options = {}) {
         // Duplicate process guard: skip if a queued/active redeem process already exists
         // for the same alliance + gift code combination
         const allianceIdForProcess = allianceContext?.id || 0;
+        const lockKey = `${allianceIdForProcess}:${giftCode}`;
+
+        // In-memory lock: prevent TOCTOU race between sync duplicate check and async createProcess
+        if (pendingRedeemCreations.has(lockKey)) {
+            return {
+                success: true,
+                processId: null,
+                message: 'Duplicate process skipped — creation already in progress for this alliance and gift code'
+            };
+        }
+
         const existingProcesses = processDbQueries.getProcessesByActionAndTarget('redeem_giftcode', String(allianceIdForProcess));
         if (existingProcesses && existingProcesses.length > 0) {
             const isDuplicate = existingProcesses.some(proc => {
@@ -623,12 +638,20 @@ async function createRedeemProcess(redeemData, options = {}) {
             }
         }
 
-        const processResult = await createProcess({
-            admin_id: adminId,
-            alliance_id: allianceIdForProcess,
-            player_ids: identifiers.join(','),
-            action: 'redeem_giftcode'
-        });
+        // Acquire lock before async createProcess to prevent concurrent duplicates
+        pendingRedeemCreations.add(lockKey);
+
+        let processResult;
+        try {
+            processResult = await createProcess({
+                admin_id: adminId,
+                alliance_id: allianceIdForProcess,
+                player_ids: identifiers.join(','),
+                action: 'redeem_giftcode'
+            });
+        } finally {
+            pendingRedeemCreations.delete(lockKey);
+        }
 
         if (!processResult || !processResult.process_id) {
             throw new Error('Failed to create redeem process');
