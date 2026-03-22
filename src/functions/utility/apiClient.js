@@ -6,6 +6,8 @@
 
 const crypto = require('crypto');
 const fetch = require('node-fetch');
+
+const isDevMode = process.env.WOSLAND_DEV_MODE === '1';
 const http = require('http');
 const https = require('https');
 const { API_CONFIG } = require('./apiConfig');
@@ -224,7 +226,7 @@ async function nativePost(url, payload, label, cookies) {
         });
 
         req.on('error', (error) => {
-            console.error(`${label} request failed:`, error.message);
+            if (isDevMode) console.error(`${label} request failed:`, error.message);
             reject(error);
         });
 

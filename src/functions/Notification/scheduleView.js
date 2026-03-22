@@ -678,7 +678,8 @@ function appendBoardNotifications(container, notifications, sv) {
         );
 
         const lines = section.items.map(n => {
-            const timeStr = `${String(n.hour).padStart(2, '0')}:${String(n.minute).padStart(2, '0')}`;
+            const triggerDate = new Date(n.next_trigger * 1000);
+            const timeStr = `${String(triggerDate.getUTCHours()).padStart(2, '0')}:${String(triggerDate.getUTCMinutes()).padStart(2, '0')}`;
             const triggerTime = sv.details.triggerTime.replace('{time}', timeStr);
             const startTime = sv.details.nextTrigger.replace('{timestamp}', Math.floor(n.next_trigger));
             return `- ${triggerTime} ${n.name} ${startTime}`;

@@ -453,6 +453,10 @@ async function handleChannelPagination(interaction) {
 // ============================================================
 
 let cleanupInterval = null;
+let isProcessing = false;
+
+const BATCH_SIZE = 10; // Max messages to process per cycle
+const DELETE_DELAY_MS = 1500; // Delay between Discord deletions to avoid rate limits
 
 /**
  * Start the auto-clean scheduler that periodically deletes old notification messages
@@ -484,6 +488,9 @@ function stopAutoCleanScheduler() {
  * @param {import('discord.js').Client} client
  */
 async function processAutoClean(client) {
+    if (isProcessing) return; // Skip if previous cycle is still running
+    isProcessing = true;
+
     try {
         const settings = settingsQueries.getSettings.get();
         if (!settings.notif_auto_clean || !settings.notif_auto_clean_freq) return;
@@ -495,27 +502,33 @@ async function processAutoClean(client) {
         const messages = notifMessageQueries.getMessagesByTriggerTime(cutoffTime);
         if (!messages || messages.length === 0) return;
 
-        for (const msg of messages) {
+        // Process in batches to avoid memory spikes and rate limits
+        const batch = messages.slice(0, BATCH_SIZE);
+
+        for (const msg of batch) {
             try {
                 const channel = await client.channels.fetch(msg.channel_id).catch(() => null);
                 if (!channel) {
-                    console.warn(`[AutoClean] Channel ${msg.channel_id} not found, removing tracking row ${msg.id}`);
                     notifMessageQueries.deleteMessage(msg.id);
                     continue;
                 }
 
                 const discordMsg = await channel.messages.fetch(msg.message_id).catch(() => null);
                 if (!discordMsg) {
-                    console.warn(`[AutoClean] Message ${msg.message_id} not found in channel ${msg.channel_id}, removing tracking row ${msg.id}`);
                     notifMessageQueries.deleteMessage(msg.id);
                     continue;
                 }
 
                 await discordMsg.delete();
                 notifMessageQueries.deleteMessage(msg.id);
+
+                // Delay between deletions to avoid Discord rate limits
+                if (batch.indexOf(msg) < batch.length - 1) {
+                    await new Promise(resolve => setTimeout(resolve, DELETE_DELAY_MS));
+                }
             } catch (err) {
-                console.error(`[AutoClean] Failed to delete message ${msg.message_id} in channel ${msg.channel_id}:`, err.message);
-                notifMessageQueries.deleteMessage(msg.id);
+                handleError(null, null, err, 'processAutoClean');
+                // Don't remove tracking row — retry on next cycle (14-day cleanup handles stuck entries)
             }
         }
 
@@ -523,7 +536,9 @@ async function processAutoClean(client) {
         const oldCutoff = Math.floor(Date.now() / 1000) - (14 * 86400);
         notifMessageQueries.deleteOlderThan(oldCutoff);
     } catch (err) {
-        console.error('[AutoClean] Scheduler error:', err.message);
+        handleError(null, null, err, 'processAutoClean');
+    } finally {
+        isProcessing = false;
     }
 }
 
@@ -545,8 +560,8 @@ function trackSentMessage(notificationId, channelId, messageId, triggerTime) {
 
         const sentAt = Math.floor(Date.now() / 1000);
         notifMessageQueries.addMessage(notificationId, channelId, messageId, triggerTime, sentAt);
-    } catch {
-        // Non-critical — don't break notification sending
+    } catch (err) {
+        handleError(null, null, err, 'trackSentMessage');
     }
 }
 

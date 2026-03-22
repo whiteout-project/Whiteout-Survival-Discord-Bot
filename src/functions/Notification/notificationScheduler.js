@@ -3,6 +3,10 @@ const { notificationQueries, systemLogQueries } = require('../utility/database')
 const { handleError } = require('../utility/commonFunctions');
 const { trackSentMessage } = require('./autoClean');
 
+const isDevMode = process.env.WOSLAND_DEV_MODE === '1';
+/** Grace period (seconds) for sending missed one-time notifications on reconnect */
+const MISSED_NOTIFICATION_GRACE = 300; // 5 minutes
+
 /**
  * Parse existing mentions from notification
  * @param {string} mentionJson - JSON string of mentions
@@ -58,6 +62,7 @@ class NotificationScheduler {
         this.client = null;
         this.scheduledNotifications = new Map(); // Track scheduled timeouts per notification (stores timeout IDs)
         this.scheduleGenerations = new Map(); // Track generation ID per notification (to cancel in-flight preparations)
+        this.activeSends = new Set(); // Prevent duplicate sends during reconnect overlap
     }
 
     /**
@@ -81,6 +86,7 @@ class NotificationScheduler {
             }
         }
         this.scheduledNotifications.clear();
+        this.activeSends.clear();
 
         try {
             // Get all active notifications
@@ -97,8 +103,36 @@ class NotificationScheduler {
                     // Check if next_trigger is in the past
                     if (notification.next_trigger && notification.next_trigger < currentTime) {
 
-                        // If no repeat, deactivate the notification
+                        // If no repeat, check grace period before deactivating
                         if (!notification.repeat_status || notification.repeat_status === 0) {
+                            const missedBy = currentTime - notification.next_trigger;
+
+                            if (missedBy <= MISSED_NOTIFICATION_GRACE) {
+                                // Within grace period — try to send now, then deactivate
+                                systemLogQueries.addLog(
+                                    'info',
+                                    `Sending missed one-time notification within grace period: ${notification.name}`,
+                                    JSON.stringify({
+                                        notification_id: notification.id,
+                                        missed_by_seconds: missedBy,
+                                        function: 'NotificationScheduler.initialize'
+                                    })
+                                );
+
+                                // Schedule immediate send (1 second delay to ensure client is fully ready)
+                                const scheduledTime = Math.floor(notification.next_trigger);
+                                setTimeout(async () => {
+                                    try {
+                                        await this.sendNotification(notification, scheduledTime, scheduledTime, true);
+                                    } catch (err) {
+                                        await handleError(null, null, err, 'NotificationScheduler.initialize.graceSend');
+                                    }
+                                }, 1000);
+
+                                notification.is_active = false;
+                                continue;
+                            }
+
                             notificationQueries.updateNotificationActiveStatus(notification.id, false);
 
                             systemLogQueries.addLog(
@@ -383,10 +417,17 @@ class NotificationScheduler {
      * @param {boolean} isLastSend - Whether this is the final send at scheduled time
      */
     async sendNotification(notification, sendTime, scheduledTime, isLastSend) {
+        // Prevent duplicate sends for the same notification + sendTime (e.g., during reconnect overlap)
+        const sendKey = `${notification.id}_${sendTime}`;
+        if (this.activeSends.has(sendKey)) return;
+        this.activeSends.add(sendKey);
+
         try {
             // Check if client is available and ready
             if (!this.client || !this.client.isReady() || !this.client.token) {
-                console.error(`Discord client not available for notification ${notification.id}`);
+                if (isDevMode) {
+                    console.log(`[DEV] Discord client not available for notification ${notification.id}, skipping (will be rescheduled on reconnect)`);
+                }
                 return;
             }
 
@@ -484,6 +525,8 @@ class NotificationScheduler {
 
         } catch (error) {
             await handleError(null, null, error, `NotificationScheduler.sendNotification - notification ${notification.id}`);
+        } finally {
+            this.activeSends.delete(sendKey);
         }
     }
 
@@ -709,6 +752,7 @@ class NotificationScheduler {
         }
         this.scheduledNotifications.clear();
         this.scheduleGenerations.clear();
+        this.activeSends.clear();
     }
 }
 

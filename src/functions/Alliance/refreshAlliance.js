@@ -216,7 +216,19 @@ class AutoRefreshManager {
             }
 
             // Fetch from API instead of cache to get the latest channel
-            const channel = await this.client.channels.fetch(alliance.channel_id).catch(() => null);
+            let channel = null;
+            try {
+                channel = await this.client.channels.fetch(alliance.channel_id);
+            } catch (fetchErr) {
+                // Only treat "Unknown Channel" (10003) as channel-not-found; other errors may be transient
+                if (fetchErr.code === 10003) {
+                    channel = null;
+                } else {
+                    await handleError(null, null, fetchErr, 'executeAutoRefresh_channelFetch', false);
+                    this.activeRefreshes.delete(alliance.id);
+                    return;
+                }
+            }
             if (!channel) {
                 await handleError(null, null, new Error(`Channel ${alliance.channel_id} not found for alliance ${alliance.name}`), 'executeAutoRefresh', false);
                 // Clean up active refresh tracking - process will be marked as failed by executeProcesses.js

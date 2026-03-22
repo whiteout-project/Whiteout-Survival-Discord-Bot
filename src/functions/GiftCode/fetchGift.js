@@ -7,6 +7,8 @@ const languages = require('../../i18n');
 const { getUserInfo, handleError } = require('../utility/commonFunctions');
 const { GIFT_CODE_API_CONFIG } = require('../utility/apiConfig');
 
+const isDevMode = process.env.WOSLAND_DEV_MODE === '1';
+
 
 /**
  * Gift Code API Client for syncing gift codes between bots
@@ -88,20 +90,20 @@ class GiftCodeAPI {
 
         if (status === 429) {
             // Rate limit triggered - standard backoff
-            console.warn(`Rate limit triggered: ${status}`);
+            if (isDevMode) console.warn(`Rate limit triggered: ${status}`);
             let backoff = Math.max(this.cloudflareBackoffTime, this.currentBackoff);
             backoff *= this.randomFloat(1.0, 1.5);
             this.currentBackoff = Math.min(this.currentBackoff * 2, this.maxBackoffTime);
             return backoff;
         } else if (status === 502 || status === 503 || status === 504) {
             // Server errors - back off with increasing delay
-            console.warn(`Server error: ${status}`);
+            if (isDevMode) console.warn(`Server error: ${status}`);
             const backoff = this.currentBackoff * this.randomFloat(0.75, 1.25);
             this.currentBackoff = Math.min(this.currentBackoff * 2, this.maxBackoffTime);
             return backoff;
         } else {
             // Other errors - standard backoff
-            console.error(`API error: ${status}, ${responseText.substring(0, 200)}`);
+            if (isDevMode) console.error(`API error: ${status}, ${responseText.substring(0, 200)}`);
             return this.currentBackoff * this.randomFloat(0.75, 1.25);
         }
     }
@@ -121,7 +123,7 @@ class GiftCodeAPI {
                     if (success) {
                         // Also check for codes that need revalidation (24 hours)
                         await this.validateExistingCodes().catch(error => {
-                            console.error('Error validating existing codes:', error);
+                            if (isDevMode) console.error('Error validating existing codes:', error);
                         });
 
                         // Reset backoff on success
@@ -132,12 +134,12 @@ class GiftCodeAPI {
                         // Added jitter on failure to prevent thundering herd
                         const jitter = this.randomFloat(0.75, 1.25);
                         const backoffTime = Math.min(this.currentBackoff * jitter, this.maxBackoffTime);
-                        console.warn(`API sync failed, backing off for ${(backoffTime / 1000).toFixed(1)} seconds`);
+                        if (isDevMode) console.warn(`API sync failed, backing off for ${(backoffTime / 1000).toFixed(1)} seconds`);
                         await this.sleep(backoffTime);
                         this.currentBackoff = Math.min(this.currentBackoff * 2, this.maxBackoffTime);
                     }
                 } catch (error) {
-                    console.error('Error in API check loop:', error);
+                    if (isDevMode) console.error('Error in API check loop:', error);
                     const sleepTime = Math.min(
                         this.currentBackoff * this.randomFloat(0.75, 1.25),
                         this.maxBackoffTime
@@ -248,7 +250,7 @@ class GiftCodeAPI {
 
                 if (response.status !== 200) {
                     const backoffTime = await this.handleApiError(response, responseText);
-                    console.warn(`API request failed, backing off for ${(backoffTime / 1000).toFixed(1)} seconds`);
+                    if (isDevMode) console.warn(`API request failed, backing off for ${(backoffTime / 1000).toFixed(1)} seconds`);
                     await this.sleep(backoffTime);
                     return false;
                 }
@@ -338,106 +340,34 @@ class GiftCodeAPI {
                         }
                     }
 
-                    // Validate new codes BEFORE adding them to database
+                    // Add new codes directly to database (validation happens during 24h revalidation and redeem)
                     if (newCodesToValidate.length > 0) {
-
-                        // PHASE 1: Validate ALL codes first and collect valid ones
-                        // This prevents validation processes from preempting auto-redeem processes
-                        const validCodesForAutoRedeem = [];
+                        const newCodesForAutoRedeem = [];
 
                         for (const { code, date } of newCodesToValidate) {
                             try {
-                                // Validate the gift code with retry logic for inconclusive results
-                                let validationResult = null;
-                                const MAX_VALIDATION_RETRIES = 3;
+                                // Check if code was added between snapshot and now (e.g., manual add or concurrent sync)
+                                const existing = giftCodeQueries.getGiftCode(code);
+                                if (existing) continue;
 
-                                for (let attempt = 1; attempt <= MAX_VALIDATION_RETRIES; attempt++) {
-                                    validationResult = await createRedeemProcess([
-                                        {
-                                            id: null,
-                                            giftCode: code,
-                                            status: 'validation'
-                                        }
-                                    ], {
-                                        adminId: 'SYSTEM_API_SYNC'
-                                    });
-
-                                    // If we got a definitive answer, stop retrying
-                                    if (validationResult?.success) break;
-
-                                    // Inconclusive — retry after delay
-                                    if (attempt < MAX_VALIDATION_RETRIES) {
-                                        console.warn(`Validation inconclusive for code ${code} (attempt ${attempt}/${MAX_VALIDATION_RETRIES}), retrying...`);
-                                        await this.sleep(5000);
-                                    }
-                                }
-
-                                // Check giftCodeActive instead of success
-                                // success=true just means we got a definitive answer (including TIME ERROR, USED, etc.)
-                                // giftCodeActive=true means the code exists and can still be redeemed
-                                if (validationResult?.success && validationResult.results?.[0]?.giftCodeActive === true) {
-                                    // Code is VALID and ACTIVE - collect for database addition and auto-redeem
-                                    // Get VIP status from validation result
-                                    const isVipCode = validationResult.results?.[0]?.is_vip || false;
-
-                                    try {
-                                        // addGiftCode(giftCode, status, addedBy, source, apiPushed, isVip)
-                                        giftCodeQueries.addGiftCode(code, 'active', 'system', 'api', true, isVipCode);
-
-                                        // Set last_validated timestamp to prevent re-validation by validateExistingCodes
-                                        giftCodeQueries.updateLastValidated(code);
-
-                                        // Only push to auto-redeem array AFTER successful DB insert
-                                        // If DB insert fails (code already exists from channel/manual add),
-                                        // the other source handles auto-redeem — skip to prevent duplicates
-                                        validCodesForAutoRedeem.push({ code, date, isVipCode });
-                                    } catch (dbError) {
-                                        console.error(`Code ${code} already exists in database, skipping auto-redeem`);
-                                        continue;
-                                    }
-
-                                } else {
-                                    // Code is INVALID/EXPIRED/USED - do NOT add to database, remove from API
-                                    const message = validationResult?.message || validationResult?.results?.[0]?.message || 'Unknown error';
-                                    const status = validationResult?.results?.[0]?.status || 'UNKNOWN';
-
-                                    // Remove invalid code from API
-                                    try {
-                                        await this.removeGiftcode(code, true);
-                                    } catch (removeError) {
-                                        console.error(`Failed to remove inactive code ${code} from API:`, removeError);
-                                    }
-
-                                    systemLogQueries.addLog(
-                                        'api_validation',
-                                        `Inactive/expired code from API (not added to database): ${code}`,
-                                        JSON.stringify({
-                                            giftCode: code,
-                                            reason: message,
-                                            status: status,
-                                            giftCodeActive: validationResult?.results?.[0]?.giftCodeActive,
-                                            date: date,
-                                            action: 'rejected'
-                                        })
-                                    );
-                                }
-                            } catch (error) {
-                                await handleError(null, null, error, 'validateNewCode', false);
+                                // addGiftCode(giftCode, status, addedBy, source, apiPushed, isVip)
+                                giftCodeQueries.addGiftCode(code, 'active', 'system', 'api', true, false);
+                                newCodesForAutoRedeem.push({ code, date, isVipCode: false });
+                            } catch (dbError) {
+                                // UNIQUE constraint or other DB error — skip silently
+                                continue;
                             }
                         }
 
-                        // PHASE 2: Notify and auto-redeem valid codes
-                        if (validCodesForAutoRedeem.length > 0) {
-                            // Notify owner admins and gift code channels IMMEDIATELY (before auto-redeem)
-                            await this.notifyNewCodes(validCodesForAutoRedeem);
+                        // Notify and auto-redeem new codes
+                        if (newCodesForAutoRedeem.length > 0) {
+                            await this.notifyNewCodes(newCodesForAutoRedeem);
 
                             const autoRedeemAlliances = allianceQueries.getAlliancesWithAutoRedeem();
 
                             // Create processes SEQUENTIALLY so the queue system properly
                             // queues them (first = ACTIVE, rest = QUEUED).
-                            // Parallel creation causes a race condition where all processes
-                            // see activeProcesses=[] and all start executing concurrently.
-                            for (const { code, date, isVipCode } of validCodesForAutoRedeem) {
+                            for (const { code, date, isVipCode } of newCodesForAutoRedeem) {
                                 for (const alliance of autoRedeemAlliances) {
                                     try {
                                         await this.createAutoRedeemProcessForCodeAndAlliance(code, alliance, isVipCode);
@@ -515,7 +445,7 @@ class GiftCodeAPI {
                     return false;
                 }
             } catch (fetchError) {
-                await handleError(null, null, fetchError, 'syncWithAPI_fetchError', false);
+                if (isDevMode) await handleError(null, null, fetchError, 'syncWithAPI_fetchError', false);
                 return false;
             }
         } catch (error) {
