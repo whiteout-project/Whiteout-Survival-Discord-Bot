@@ -513,22 +513,27 @@ async function processAutoClean(client) {
                     continue;
                 }
 
+                // Try fetch-then-delete first (validates message exists)
                 const discordMsg = await channel.messages.fetch(msg.message_id).catch(() => null);
-                if (!discordMsg) {
+                if (discordMsg) {
+                    await discordMsg.delete();
                     notifMessageQueries.deleteMessage(msg.id);
-                    continue;
+                } else {
+                    // Fallback: direct REST DELETE (works without Read Message History)
+                    await client.rest.delete(`/channels/${msg.channel_id}/messages/${msg.message_id}`);
+                    notifMessageQueries.deleteMessage(msg.id);
                 }
-
-                await discordMsg.delete();
-                notifMessageQueries.deleteMessage(msg.id);
 
                 // Delay between deletions to avoid Discord rate limits
                 if (batch.indexOf(msg) < batch.length - 1) {
                     await new Promise(resolve => setTimeout(resolve, DELETE_DELAY_MS));
                 }
             } catch (err) {
-                handleError(null, null, err, 'processAutoClean');
-                // Don't remove tracking row — retry on next cycle (14-day cleanup handles stuck entries)
+                // 10008 = Unknown Message (already deleted), 10003 = Unknown Channel
+                if (err.code === 10008 || err.code === 10003) {
+                    notifMessageQueries.deleteMessage(msg.id);
+                }
+                // For permission errors or transient failures, keep tracking row for retry
             }
         }
 
