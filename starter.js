@@ -11,37 +11,55 @@ const { spawn, execSync } = require('child_process');
 // without killing the parent — the parent just respawns the child.
 // ============================================================
 if (!process.env.STARTER_CHILD) {
-    const isDevMode = process.argv.includes('--dev');
-    const userArgs = process.argv.slice(2); // args after "starter.js"
+    // Detect old parent (pre-1.0.23): it sets FULL_SELF_UPDATE but not STARTER_CHILD.
+    // Let the bot start so ready.js can DM the owner, then exit.
+    if (process.env.FULL_SELF_UPDATE === '1') {
+        process.env.OLD_PARENT_DETECTED = '1';
+    } else {
+        const isDevMode = process.argv.includes('--dev');
+        const userArgs = process.argv.slice(2); // args after "starter.js"
 
-    // Ensure --expose-gc and --max-old-space-size are present
-    const nodeFlags = [...process.execArgv];
-    if (!nodeFlags.some(f => f.includes('expose-gc'))) nodeFlags.push('--expose-gc');
-    if (!nodeFlags.some(f => f.includes('max-old-space-size'))) nodeFlags.push('--max-old-space-size=256');
+        // Ensure --expose-gc and --max-old-space-size are present
+        const nodeFlags = [...process.execArgv];
+        if (!nodeFlags.some(f => f.includes('expose-gc'))) nodeFlags.push('--expose-gc');
+        if (!nodeFlags.some(f => f.includes('max-old-space-size'))) nodeFlags.push('--max-old-space-size=256');
 
-    function spawnChild() {
-        const child = spawn(process.execPath, [...nodeFlags, __filename, ...userArgs], {
-            stdio: 'inherit',
-            cwd: process.cwd(),
-            env: {
-                ...process.env,
-                STARTER_CHILD: '1',
-                FULL_SELF_UPDATE: '1',
-                ...(isDevMode ? { WOSLAND_DEV_MODE: '1' } : {})
-            }
-        });
+        function spawnChild() {
+            const child = spawn(process.execPath, [...nodeFlags, __filename, ...userArgs], {
+                stdio: 'inherit',
+                cwd: process.cwd(),
+                env: {
+                    ...process.env,
+                    STARTER_CHILD: '1',
+                    FULL_SELF_UPDATE: '1',
+                    ...(isDevMode ? { WOSLAND_DEV_MODE: '1' } : {})
+                }
+            });
 
-        child.on('exit', (code) => {
-            if (code === 42) {
-                console.log('[LAUNCHER] Respawning with updated code...\n');
-                spawnChild();
-            } else {
-                process.exit(code ?? 1);
-            }
-        });
+            child.on('exit', (code) => {
+                if (code === 42) {
+                    console.log('[LAUNCHER] Respawning with updated code...\n');
+                    spawnChild();
+                } else if (code === 43) {
+                    // starter.js itself was updated — re-exec the parent so it loads the new file from disk
+                    console.log('[LAUNCHER] starter.js updated — re-launching from disk...\n');
+                    const freshEnv = { ...process.env };
+                    delete freshEnv.STARTER_CHILD;
+                    delete freshEnv.FULL_SELF_UPDATE;
+                    const fresh = spawn(process.execPath, [...process.execArgv, __filename, ...userArgs], {
+                        stdio: 'inherit',
+                        cwd: process.cwd(),
+                        env: freshEnv
+                    });
+                    fresh.on('exit', (c) => process.exit(c ?? 1));
+                } else {
+                    process.exit(code ?? 1);
+                }
+            });
+        }
+        spawnChild();
+        return;
     }
-    spawnChild();
-    return;
 }
 
 // ============================================================
@@ -454,36 +472,81 @@ function downloadFile(url, destPath, maxRedirects = 5) {
 }
 
 /**
+ * Attempts extraction using the bundled 7zip-bin binary via node-7z.
+ * @param {string} zipPath - Path to the ZIP file
+ * @param {string} extractDir - Directory to extract into
+ * @returns {Promise<void>}
+ */
+async function extractWith7z(zipPath, extractDir) {
+    const Seven = require('node-7z');
+    const { acquire7z } = require('./src/functions/utility/ensure7zip');
+    const { binPath, cleanupPath } = await acquire7z(extractDir);
+    if (!binPath) {
+        throw new Error('No 7-Zip binary available');
+    }
+    try {
+        await new Promise((resolve, reject) => {
+            const stream = Seven.extractFull(zipPath, extractDir, { $bin: binPath });
+            stream.on('end', resolve);
+            stream.on('error', reject);
+        });
+    } finally {
+        if (cleanupPath) {
+            try { fs.unlinkSync(cleanupPath); } catch { /* ignore */ }
+        }
+    }
+}
+
+/**
  * Extracts a ZIP file using the platform-appropriate method.
+ * On Linux/macOS, tries unzip first, then falls back to the bundled 7-zip binary.
  * @param {string} zipPath - Path to the ZIP file
  * @param {string} extractDir - Directory to extract into
  * @param {string} [stdio='pipe'] - stdio option for the extraction subprocess
+ * @returns {Promise<void>}
  */
-function extractZip(zipPath, extractDir, stdio = 'pipe') {
+async function extractZip(zipPath, extractDir, stdio = 'pipe') {
     if (!fs.existsSync(extractDir)) {
         fs.mkdirSync(extractDir, { recursive: true });
     }
     const platform = os.platform();
-    try {
-        if (platform === 'win32') {
-            execSync(`powershell -Command "Expand-Archive -Path '${zipPath}' -DestinationPath '${extractDir}' -Force"`, {
-                cwd: __dirname,
-                stdio
-            });
-        } else if (platform === 'darwin' || platform === 'linux') {
+
+    if (platform === 'win32') {
+        execSync(`powershell -Command "Expand-Archive -Path '${zipPath}' -DestinationPath '${extractDir}' -Force"`, {
+            cwd: __dirname,
+            stdio
+        });
+        return;
+    }
+
+    if (platform === 'darwin' || platform === 'linux') {
+        try {
             execSync(`unzip -q "${zipPath}" -d "${extractDir}"`, {
                 cwd: __dirname,
                 stdio
             });
-        } else {
-            throw new Error(`Unsupported platform: ${platform}`);
+            return;
+        } catch (unzipError) {
+            const isNotFound = unzipError.message.includes('unzip') || unzipError.message.includes('not found');
+            if (!isNotFound) {
+                throw new Error(`Failed to extract update: ${unzipError.message}`);
+            }
+            // unzip not installed -- fall through to 7-zip
         }
-    } catch (error) {
-        if (error.message.includes('unzip') || error.message.includes('not found')) {
-            throw new Error(`ZIP extraction failed. Please install 'unzip' command:\n  - Ubuntu/Debian: sudo apt-get install unzip\n  - macOS: brew install unzip (usually pre-installed)\n  - Or manually extract the repository from: https://github.com/${GITHUB_REPO}`);
+
+        try {
+            await extractWith7z(zipPath, extractDir);
+            return;
+        } catch (sevenError) {
+            throw new Error(
+                `ZIP extraction failed. Neither 'unzip' nor the bundled 7-zip binary worked.\n` +
+                `  Install unzip: sudo apt-get install unzip\n` +
+                `  7-zip error: ${sevenError.message}`
+            );
         }
-        throw new Error(`Failed to extract ZIP: ${error.message}`);
     }
+
+    throw new Error(`Unsupported platform: ${platform}`);
 }
 
 /**
@@ -541,7 +604,7 @@ async function applyUpdate() {
 
         verifyZipIntegrity(updateZipPath);
         console.log('[UPDATE] Extracting update...');
-        extractZip(updateZipPath, updateExtractDir);
+        await extractZip(updateZipPath, updateExtractDir);
 
         const extractedRoot = getExtractedRoot(updateExtractDir);
 
@@ -621,11 +684,11 @@ async function applyUpdate() {
         console.log('\n[UPDATE] Cleaning up temporary files...');
         cleanupTempFiles(updateZipPath, updateExtractDir);
 
-        // If starter.js itself was updated and parent supports self-update loop, exit with code 42 to trigger re-spawn
+        // If starter.js itself was updated and parent supports self-update loop, exit with code 43 to trigger full re-launch
         if (stats.starterChanged) {
             if (process.env.FULL_SELF_UPDATE === '1') {
-                console.log('\n[UPDATE] starter.js was updated — restarting process to apply entry-point changes...');
-                setTimeout(() => process.exit(42), 500);
+                console.log('\n[UPDATE] starter.js was updated — full re-launch to apply entry-point changes...');
+                setTimeout(() => process.exit(43), 500);
                 const failMsg = stats.failed > 0 ? ` ${stats.failed} files failed to update.` : '';
                 return {
                     success: true,
@@ -1003,7 +1066,7 @@ async function downloadAndExtractZip() {
 
     verifyZipIntegrity(zipPath);
     console.log('[INSTALLER] Extracting files...');
-    extractZip(zipPath, extractDir, 'inherit');
+    await extractZip(zipPath, extractDir, 'inherit');
 
     const extractedRoot = getExtractedRoot(extractDir);
     const files = fs.readdirSync(extractedRoot);
@@ -1071,14 +1134,23 @@ async function installRepo() {
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
         console.log('\n[INSTALLER] Restarting with the installed version...\n');
 
-        // Restart the process to use the newly installed starter.js
-        const child = spawn('node', [
+        // Exit with code 43 so the parent wrapper re-launches from the newly installed starter.js
+        if (process.env.FULL_SELF_UPDATE === '1') {
+            process.exit(43);
+        }
+
+        // No parent wrapper — spawn a fresh process manually
+        const freshEnv = { ...process.env };
+        delete freshEnv.STARTER_CHILD;
+        delete freshEnv.FULL_SELF_UPDATE;
+        const child = spawn(process.execPath, [
             '--expose-gc',
             '--max-old-space-size=256',
             ...process.argv.slice(1)
         ], {
             stdio: 'inherit',
-            cwd: __dirname
+            cwd: __dirname,
+            env: freshEnv
         });
 
         child.on('exit', (code) => {
@@ -1913,6 +1985,7 @@ process.on('exit', () => {
 });
 
 // Expose functions globally for programmatic use (e.g., settings panel auto-update)
+global.starterVersion = 2;
 global.restartBot = restartBot;
 global.checkForUpdates = checkForUpdates;
 global.applyUpdate = applyUpdate;

@@ -11,13 +11,51 @@ const { startAutoCleanScheduler: startNotifAutoClean } = require('../functions/N
 const { initializeGiftCodeChannelCache } = require('../functions/GiftCode/giftCodeChannel');
 const { initializeEmojiPacks } = require('../functions/Settings/theme/emojisUploader');
 const { adminUsernameCache } = require('../functions/utility/adminUsernameCache');
-const { processQueries, systemLogQueries } = require('../functions/utility/database');
+const { processQueries, systemLogQueries, adminQueries } = require('../functions/utility/database');
 const { handlePostUpdateRestart, startAutoUpdateScheduler } = require('../functions/Settings/autoUpdate');
+
+/**
+ * Detects if the running process lacks the parent-child launcher wrapper.
+ * When an old bot (pre-1.0.23) updates, the old starter.js may re-evaluate the new code
+ * but never activates the parent-child wrapper. FULL_SELF_UPDATE is only set by the
+ * parent wrapper's spawn() call, so its absence means the launcher isn't properly active.
+ * @param {import('discord.js').Client} client
+ * @returns {Promise<boolean>} true if the old launcher was detected and shutdown initiated
+ */
+async function detectOldStarter(client) {
+    if (process.env.OLD_PARENT_DETECTED !== '1') return false;
+
+    console.log('\n[UPDATE] Old launcher detected. A full restart is required to complete the update.');
+    console.log('[UPDATE] The bot will shut down now. Please start it again with: node starter.js\n');
+
+    try {
+        const allAdmins = adminQueries.getAllAdmins();
+        const owner = allAdmins.find(a => a.is_owner);
+        if (owner) {
+            const ownerUser = await client.users.fetch(owner.user_id);
+            await ownerUser.send(
+                '**Update requires restart**\n' +
+                'The bot updated its launcher but needs a full restart to apply the changes.\n' +
+                'It has shut down automatically. Please start it again with: `node starter.js`'
+            );
+        }
+    } catch (dmError) {
+        console.error('Could not DM owner about required restart:', dmError.message);
+    }
+
+    setTimeout(() => process.exit(0), 2000);
+    return true;
+}
 
 module.exports = {
     name: Events.ClientReady,
     once: false,
     async execute(client) {
+        // Detect if the old starter.js (without parent-child wrapper) is still in memory
+        // after an update. If so, DM the owner and shut down for a clean restart.
+        const isOldStarter = await detectOldStarter(client);
+        if (isOldStarter) return;
+
         // Register slash commands with Discord — only on first ready, not on reconnects
         if (!client._commandsRegistered) {
             try {

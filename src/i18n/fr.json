@@ -582,8 +582,8 @@
                 "description": {
                     "base": "Choisissez une action pour les canaux d'ID :",
                     "selectAlliance": "Choisissez l'alliance à laquelle lier le canal d'ID.",
-					"selectAllianceMessage": "Ce canal est lié à plusieurs alliances. Choisissez l'alliance à laquelle ajouter ces joueurs.",
-					"allianceSelected": "Ajout de {count} joueur(s) à **{alliance}**...",
+                    "selectAllianceMessage": "Ce canal est lié à plusieurs alliances. Choisissez l'alliance à laquelle ajouter ces joueurs.",
+                    "allianceSelected": "Ajout de {count} joueur(s) à **{alliance}**...",
                     "channelID": "Choisissez un canal où les utilisateurs peuvent soumettre des IDs de joueur pour l'alliance : **{alliance}**",
                     "remove": "Choisissez un canal d'ID à délier",
                     "removeSuccess": "Le lien du canal d'ID a été supprimé.",
@@ -1274,7 +1274,15 @@
                     "name": "Répétition",
                     "enabled": "Toutes les {parts}",
                     "weekly": "Hebdo : {days}",
-                    "weeklyDays": ["Dim", "Lun", "Mar", "Mer", "Jeu", "Ven", "Sam"],
+                    "weeklyDays": [
+                        "Dim",
+                        "Lun",
+                        "Mar",
+                        "Mer",
+                        "Jeu",
+                        "Ven",
+                        "Sam"
+                    ],
                     "days": "{count}j",
                     "hours": "{count}h",
                     "minutes": "{count}min",
@@ -1765,7 +1773,7 @@
                 "boardTargetChannelTitle": "### {emoji.1022} Choisir le canal cible",
                 "boardTargetChannelDescription": "Choisissez le canal où le tableau sera envoyé.",
                 "boardSent": "Tableau envoyé dans <#{channelId}>.",
-				"boardTitle": "### {emoji.1022} Calendrier des événements"
+                "boardTitle": "### {emoji.1022} Calendrier des événements"
             },
             "buttons": {
                 "serverNotifications": "Serveur",
@@ -1774,7 +1782,7 @@
                 "send": "Envoyer",
                 "serverWide": "Tout le serveur",
                 "perChannel": "Par canal",
-				"nextPage": "Plus d'événements"
+                "nextPage": "Plus d'événements"
             },
             "details": {
                 "triggerTime": "({time} UTC)",
@@ -1784,6 +1792,45 @@
                 "repeatWeekly": "Répétition: Hebdo - {days}",
                 "channel": "Canal: <#{channelId}>"
             }
+        }
+    },
+    "plugins": {
+        "content": {
+            "title": "### {emoji.1039} Plugins",
+            "description": "Gérez les plugins pour ajouter de nouvelles fonctionnalités à votre bot.",
+            "installed": "**Plugins installés ({count})**",
+            "noInstalled": "Aucun plugin installé.",
+            "installField": {
+                "name": "- **Installer**",
+                "value": "  - Parcourir et installer de nouveaux plugins depuis WOSLand officiel"
+            },
+            "deleteField": {
+                "name": "- **Supprimer**",
+                "value": "  - Retirer les plugins installés de votre bot"
+            },
+            "accessField": {
+                "name": "- **Accès**",
+                "value": "  - Accéder aux plugins installés et gérer leurs fonctionnalités"
+            },
+            "available": "**Plugins disponibles**",
+            "noAvailable": "Aucun plugin supplémentaire disponible.",
+            "installing": "Installation du plugin **{name}**... Cela peut prendre un moment.",
+            "removing": "Suppression du plugin **{name}**...",
+            "installSuccess": "{emoji.1004} Plugin **{name}** installé ! Redémarrez le bot pour enregistrer les nouvelles commandes.",
+            "installFailed": "{emoji.1050} Échec de l'installation du plugin **{name}** : {error}",
+            "removeSuccess": "{emoji.1004} Plugin **{name}** supprimé.",
+            "removeFailed": "{emoji.1050} Échec de la suppression du plugin **{name}** : {error}",
+            "registryError": "{emoji.1050} Impossible de récupérer le registre des plugins. Vérifiez votre connexion internet.",
+            "loading": "Chargement des plugins..."
+        },
+        "buttons": {
+            "install": "Installer",
+            "remove": "Supprimer",
+            "back": "Retour",
+            "backToInstall": "Retour à l'installation",
+            "installMenu": "Installer",
+            "deleteMenu": "Supprimer",
+            "accessMenu": "Accéder"
         }
     },
     "settings": {
@@ -1900,45 +1947,6 @@
                 "version": "**v{currentVersion}** → **v{latestVersion}**",
                 "autoApply": "-# Application de la mise à jour et redémarrage en cours",
                 "notifyOnly": "-# Utilisez le panneau de mise à jour pour l'appliquer"
-            }
-        },
-        "plugins": {
-            "content": {
-                "title": "### {emoji.1039} Plugins",
-                "description": "Gérez les plugins pour ajouter de nouvelles fonctionnalités à votre bot.",
-                "installed": "**Plugins installés ({count})**",
-                "noInstalled": "Aucun plugin installé.",
-                "installField": {
-                    "name": "- **Installer**",
-                    "value": "  - Parcourir et installer de nouveaux plugins depuis WOSLand officiel"
-                },
-                "deleteField": {
-                    "name": "- **Supprimer**",
-                    "value": "  - Retirer les plugins installés de votre bot"
-                },
-                "accessField": {
-                    "name": "- **Accès**",
-                    "value": "  - Accéder aux plugins installés et gérer leurs fonctionnalités"
-                },
-                "available": "**Plugins disponibles**",
-                "noAvailable": "Aucun plugin supplémentaire disponible.",
-                "installing": "Installation du plugin **{name}**... Cela peut prendre un moment.",
-                "removing": "Suppression du plugin **{name}**...",
-                "installSuccess": "{emoji.1004} Plugin **{name}** installé ! Redémarrez le bot pour enregistrer les nouvelles commandes.",
-                "installFailed": "{emoji.1050} Échec de l'installation du plugin **{name}** : {error}",
-                "removeSuccess": "{emoji.1004} Plugin **{name}** supprimé.",
-                "removeFailed": "{emoji.1050} Échec de la suppression du plugin **{name}** : {error}",
-                "registryError": "{emoji.1050} Impossible de récupérer le registre des plugins. Vérifiez votre connexion internet.",
-                "loading": "Chargement des plugins..."
-            },
-            "buttons": {
-                "install": "Installer",
-                "remove": "Supprimer",
-                "back": "Retour",
-                "backToInstall": "Retour à l'installation",
-                "installMenu": "Installer",
-                "deleteMenu": "Supprimer",
-                "accessMenu": "Accéder"
             }
         },
         "language": {
