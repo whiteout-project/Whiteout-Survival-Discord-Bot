@@ -20,6 +20,10 @@ const emojisDelete = require('../functions/Settings/theme/emojisDelete');
 const emojisEditor = require('../functions/Settings/theme/emojisEditor');
 const emojisReload = require('../functions/Settings/theme/emojisReload');
 const emojisTemplate = require('../functions/Settings/theme/emojisTemplate');
+const pluginsMain = require('../functions/Plugin/plugins');
+const pluginInstall = require('../functions/Plugin/pluginInstall');
+const pluginDelete = require('../functions/Plugin/pluginDelete');
+const pluginAccess = require('../functions/Plugin/pluginAccess');
 const panel = require('../functions/Panel/backToPanel');
 const alliance = require('../functions/Alliance/Alliance');
 const players = require('../functions/Players/players');
@@ -79,6 +83,7 @@ const buttonHandlers = [
     { pattern: /^(cancel_process_|cancel_crash_)/, fn: processRecovery.handleProcessCancel.bind(processRecovery) },
 
     // Settings & Panel
+    { pattern: /^settings_cat_/, fn: settings.handleSettingsCategoryButton },
     { pattern: /^settings_/, fn: settings.handleSettingsButton },
     { pattern: /^toggle_auto_delete_/, fn: autoClean.handleToggleAutoDelete },
     { pattern: /^feature_access_feat_/, fn: featureAccess.handleFeatureAccessFeatureButton },
@@ -88,8 +93,20 @@ const buttonHandlers = [
     { pattern: /^feature_access_whitelist_remove_/, fn: featureAccess.handleWhitelistRemoveButton },
     { pattern: /^feature_access_whitelist_/, fn: featureAccess.handleWhitelistChannelsButton },
     { pattern: /^feature_access_/, fn: featureAccess.handleFeatureAccessButton },
+    { pattern: /^auto_update_plugin_/, fn: autoUpdate.handleAutoUpdatePlugin },
+    { pattern: /^auto_update_toggle_/, fn: autoUpdate.handleToggleAutoUpdate },
+    { pattern: /^auto_update_back_/, fn: autoUpdate.handleAutoUpdateBack },
     { pattern: /^auto_update_check_/, fn: autoUpdate.handleAutoUpdateCheck },
     { pattern: /^auto_update_apply_/, fn: autoUpdate.handleAutoUpdateApply },
+    { pattern: /^auto_update_page_/, fn: autoUpdate.handleAutoUpdatePage },
+    { pattern: /^plugins_install_(prev|next)_/, fn: pluginInstall.handlePluginsInstallPagination },
+    { pattern: /^plugins_install_menu_/, fn: pluginInstall.handlePluginsInstallMenu },
+    { pattern: /^plugins_install_/, fn: pluginInstall.handlePluginInstall },
+    { pattern: /^plugins_delete_(prev|next)_/, fn: pluginDelete.handlePluginsDeletePagination },
+    { pattern: /^plugins_delete_menu_/, fn: pluginDelete.handlePluginsDeleteMenu },
+    { pattern: /^plugins_remove_/, fn: pluginDelete.handlePluginRemove },
+    { pattern: /^plugins_access_menu_/, fn: pluginAccess.handlePluginsAccessMenu },
+    { pattern: /^plugins_menu_/, fn: pluginsMain.handlePluginsMenu },
     { pattern: /^change_language_/, fn: language.handleChangeLanguageButton },
     { pattern: /^back_to_panel_/, fn: panel.handleBackToPanelButton },
     { pattern: /^back_to_settings_/, fn: admin.handleBackToSettingsButton },

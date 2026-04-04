@@ -18,7 +18,7 @@ const { allianceQueries, playerQueries } = require('../utility/database');
 const { PERMISSIONS } = require('../Settings/admin/permissions');
 const { createUniversalPaginationButtons, parsePaginationCustomId } = require('../Pagination/universalPagination');
 const { getFurnaceReadable } = require('./furnaceReadable');
-const { hasPermission, handleError, getUserInfo, assertUserMatches, updateComponentsV2AfterSeparator } = require('../utility/commonFunctions');
+const { hasPermission, handleError, getUserInfo, assertUserMatches, getAlliancesForUser, updateComponentsV2AfterSeparator } = require('../utility/commonFunctions');
 const { getComponentEmoji, getEmojiMapForUser } = require('../utility/emojis');
 
 /**
@@ -77,7 +77,12 @@ async function handleMovePlayersButton(interaction) {
         }
 
         // Show target alliance selection as the first step
-        const { components } = createTargetAllianceSelectionContainer(allAlliances, interaction, lang);
+        const allianceIds = allAlliances.map(a => a.id);
+        const playerCounts = playerQueries.getPlayerCountsByAllianceIds(allianceIds);
+        const playerCountMap = {};
+        playerCounts.forEach(row => { playerCountMap[row.alliance_id] = row.player_count; });
+
+        const { components } = createTargetAllianceSelectionContainer(allAlliances, interaction, lang, playerCountMap);
 
         await interaction.update({
             components: components,
@@ -86,39 +91,6 @@ async function handleMovePlayersButton(interaction) {
 
     } catch (error) {
         await handleError(interaction, lang, error, 'handleMovePlayersButton');
-    }
-}
-
-/**
- * Gets alliances available to a user based on their permissions
- * @param {Object} adminData - Admin data from database
- * @returns {Array} Array of alliance objects
- */
-function getAlliancesForUser(adminData) {
-    try {
-        // Owner and full access can see all alliances
-        if (adminData.is_owner || (adminData.permissions & PERMISSIONS.FULL_ACCESS)) {
-            return allianceQueries.getAllAlliances();
-        }
-
-        // Player management users can only see their assigned alliances
-        if (adminData.permissions & PERMISSIONS.PLAYER_MANAGEMENT) {
-            const assignedAlliances = JSON.parse(adminData.alliances || '[]');
-
-            if (assignedAlliances.length === 0) {
-                return [];
-            }
-
-            return assignedAlliances.map(allianceId => {
-                const alliance = allianceQueries.getAllianceById(allianceId);
-                return alliance;
-            }).filter(Boolean); // Remove null/undefined entries
-        }
-
-        return [];
-    } catch (error) {
-        console.error('Error getting alliances for user:', error);
-        return [];
     }
 }
 
@@ -141,7 +113,12 @@ async function handleMovePlayersPagination(interaction, type) {
         if (subtype === 'target') {
             // move_players_target_prev/next_userId_currentPage
             const allAlliances = getAlliancesForUser(adminData);
-            const { components } = createTargetAllianceSelectionContainer(allAlliances, interaction, lang, newPage);
+            const allianceIds = allAlliances.map(a => a.id);
+            const playerCounts = playerQueries.getPlayerCountsByAllianceIds(allianceIds);
+            const playerCountMap = {};
+            playerCounts.forEach(row => { playerCountMap[row.alliance_id] = row.player_count; });
+
+            const { components } = createTargetAllianceSelectionContainer(allAlliances, interaction, lang, playerCountMap, newPage);
             await interaction.update({ components: components, flags: MessageFlags.IsComponentsV2 });
 
         } else if (subtype === 'source') {
@@ -149,12 +126,18 @@ async function handleMovePlayersPagination(interaction, type) {
             const destAllianceId = parseInt(contextData[0]);
             const destAlliance = allianceQueries.getAllianceById(destAllianceId);
             const allAlliances = getAlliancesForUser(adminData);
+
+            const allianceIds = allAlliances.map(a => a.id);
+            const playerCounts = playerQueries.getPlayerCountsByAllianceIds(allianceIds);
+            const playerCountMap = {};
+            playerCounts.forEach(row => { playerCountMap[row.alliance_id] = row.player_count; });
+
             const sourceAlliances = allAlliances.filter(alliance => {
                 if (alliance.id === destAllianceId) return false;
-                return playerQueries.getPlayersByAllianceId(alliance.id).length > 0;
+                return (playerCountMap[alliance.id] || 0) > 0;
             });
 
-            const { components } = createSourceAllianceSelectionEmbed(sourceAlliances, interaction, lang, destAlliance, newPage);
+            const { components } = createSourceAllianceSelectionEmbed(sourceAlliances, interaction, lang, destAlliance, playerCountMap, newPage);
             await interaction.update({ components: components, flags: MessageFlags.IsComponentsV2 });
 
         } else if (subtype === 'player') {
@@ -214,7 +197,7 @@ async function handleMovePlayersPagination(interaction, type) {
  * @param {number} [page=0] - Current page number (default 0)
  * @returns {Object} Components
  */
-function createSourceAllianceSelectionEmbed(alliances, interaction, lang, destAlliance, page = 0) {
+function createSourceAllianceSelectionEmbed(alliances, interaction, lang, destAlliance, playerCountMap, page = 0) {
     const itemsPerPage = 24;
     const totalPages = Math.max(1, Math.ceil(alliances.length / itemsPerPage));
     const startIndex = page * itemsPerPage;
@@ -243,17 +226,14 @@ function createSourceAllianceSelectionEmbed(alliances, interaction, lang, destAl
 
     // Source alliance dropdown (only shown when alliances with members exist)
     if (currentPageAlliances.length > 0) {
-        const options = currentPageAlliances.map(alliance => {
-            const playerCount = playerQueries.getPlayersByAllianceId(alliance.id).length;
-            return {
-                label: alliance.name,
-                value: alliance.id.toString(),
-                description: lang.players.movePlayer.selectMenu.sourceAlliance.description
-                    .replace('{priority}', alliance.priority)
-                    .replace('{playerCount}', playerCount),
-                emoji: getComponentEmoji(getEmojiMapForUser(interaction.user.id), '1001')
-            };
-        });
+        const options = currentPageAlliances.map(alliance => ({
+            label: alliance.name,
+            value: alliance.id.toString(),
+            description: lang.players.movePlayer.selectMenu.sourceAlliance.description
+                .replace('{priority}', alliance.priority)
+                .replace('{playerCount}', playerCountMap[alliance.id] || 0),
+            emoji: getComponentEmoji(getEmojiMapForUser(interaction.user.id), '1001')
+        }));
 
         const allianceSelect = new StringSelectMenuBuilder()
             .setCustomId(`move_players_source_select_${destAlliance.id}_${interaction.user.id}_${page}`)
@@ -301,24 +281,21 @@ function createSourceAllianceSelectionEmbed(alliances, interaction, lang, destAl
  * @param {number} [page=0] - Current page number (default 0)
  * @returns {Object} Components
  */
-function createTargetAllianceSelectionContainer(alliances, interaction, lang, page = 0) {
+function createTargetAllianceSelectionContainer(alliances, interaction, lang, playerCountMap, page = 0) {
     const itemsPerPage = 24;
     const totalPages = Math.ceil(alliances.length / itemsPerPage);
     const startIndex = page * itemsPerPage;
     const endIndex = startIndex + itemsPerPage;
     const currentPageAlliances = alliances.slice(startIndex, endIndex);
 
-    const options = currentPageAlliances.map(alliance => {
-        const playerCount = playerQueries.getPlayersByAllianceId(alliance.id).length;
-        return {
-            label: alliance.name,
-            value: alliance.id.toString(),
-            description: lang.players.movePlayer.selectMenu.destinationAlliance.description
-                .replace('{priority}', alliance.priority)
-                .replace('{playerCount}', playerCount),
-            emoji: getComponentEmoji(getEmojiMapForUser(interaction.user.id), '1043')
-        };
-    });
+    const options = currentPageAlliances.map(alliance => ({
+        label: alliance.name,
+        value: alliance.id.toString(),
+        description: lang.players.movePlayer.selectMenu.destinationAlliance.description
+            .replace('{priority}', alliance.priority)
+            .replace('{playerCount}', playerCountMap[alliance.id] || 0),
+        emoji: getComponentEmoji(getEmojiMapForUser(interaction.user.id), '1043')
+    }));
 
     const allianceSelect = new StringSelectMenuBuilder()
         .setCustomId(`move_players_target_select_${interaction.user.id}_${page}`)
@@ -561,12 +538,17 @@ async function handleMovePlayersTargetSelection(interaction) {
 
         // Source alliances: all accessible alliances with members, excluding the target
         const allAlliances = getAlliancesForUser(adminData);
+        const allianceIds = allAlliances.map(a => a.id);
+        const playerCounts = playerQueries.getPlayerCountsByAllianceIds(allianceIds);
+        const playerCountMap = {};
+        playerCounts.forEach(row => { playerCountMap[row.alliance_id] = row.player_count; });
+
         const sourceAlliances = allAlliances.filter(alliance => {
             if (alliance.id === destAllianceId) return false;
-            return playerQueries.getPlayersByAllianceId(alliance.id).length > 0;
+            return (playerCountMap[alliance.id] || 0) > 0;
         });
 
-        const { components } = createSourceAllianceSelectionEmbed(sourceAlliances, interaction, lang, destAlliance);
+        const { components } = createSourceAllianceSelectionEmbed(sourceAlliances, interaction, lang, destAlliance, playerCountMap);
 
         await interaction.update({
             components: components,

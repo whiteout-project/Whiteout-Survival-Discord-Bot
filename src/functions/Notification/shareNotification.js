@@ -18,7 +18,7 @@ const { LOG_CODES } = require('../utility/AdminLogs');
 const { getUserInfo, assertUserMatches, handleError, hasPermission, updateComponentsV2AfterSeparator } = require('../utility/commonFunctions');
 const { createUniversalPaginationButtons, parsePaginationCustomId } = require('../Pagination/universalPagination');
 const { getFilteredNotifications } = require('./editNotification');
-const { parseMentions } = require('./notificationUtils');
+const { parseMentions, convertMentionsToTags } = require('./notificationUtils');
 const { getEmojiMapForUser, getComponentEmoji } = require('../utility/emojis');
 const { PERMISSIONS } = require('../Settings/admin/permissions');
 
@@ -222,38 +222,6 @@ async function handleExportPagination(interaction) {
     } catch (error) {
         await handleError(interaction, lang, error, 'handleExportPagination');
     }
-}
-
-/**
- * Convert mentions back to @tag placeholders
- */
-function convertMentionsToTags(text, mentions, component) {
-    if (!text || !mentions || !mentions[component]) return text;
-
-    let result = text;
-    const componentMentions = mentions[component];
-
-    // Replace Discord mentions with @tag placeholders
-    Object.entries(componentMentions).forEach(([tag, value]) => {
-        const [type, id] = value.split(':');
-        let mentionRegex;
-
-        if (type === 'everyone') {
-            mentionRegex = /@everyone/g;
-        } else if (type === 'here') {
-            mentionRegex = /@here/g;
-        } else if (type === 'user') {
-            mentionRegex = new RegExp(`<@!?${id}>`, 'g');
-        } else if (type === 'role') {
-            mentionRegex = new RegExp(`<@&${id}>`, 'g');
-        }
-
-        if (mentionRegex) {
-            result = result.replace(mentionRegex, `@${tag}`);
-        }
-    });
-
-    return result;
 }
 
 /**

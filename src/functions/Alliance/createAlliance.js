@@ -393,7 +393,7 @@ async function updateAdminAlliances(allianceId, creatorAdminData) {
         }
 
     } catch (error) {
-        await handleError(interaction, lang, error, 'updateAdminAlliances', false);
+        await handleError(null, null, error, 'updateAdminAlliances', false);
     }
 }
 

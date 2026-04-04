@@ -42,7 +42,9 @@ const getAutoRefreshManager = () => {
  * SQLite-based priority queue management for process execution
  */
 class QueueManager {
-    constructor() {}
+    constructor() {
+        this._startingNext = false;
+    }
 
     /**
      * Manages process queue and priority handling
@@ -66,14 +68,17 @@ class QueueManager {
 
                 // Execute the process
                 const executor = getProcessExecutor();
-                const processInfo = {
+                const executionPayload = {
                     process_id,
                     status: 'active',
                     paused: null
                 };
 
                 // Execute process asynchronously (don't await to avoid blocking)
-                executor.executeProcess(processInfo).catch(() => { });
+                executor.executeProcess(executionPayload).catch(error => {
+                    systemLogQueries.addLog('error', `Unhandled execution error for process ${process_id}`,
+                        JSON.stringify({ process_id, error: error.message, function: 'manageQueue' }));
+                });
 
                 return {
                     process_id,
@@ -106,14 +111,17 @@ class QueueManager {
                 await updateProcessStatus(process_id, PROCESS_STATUS.ACTIVE);
 
                 // Execute the process
-                const processInfo = {
+                const executionPayload = {
                     process_id,
                     status: 'active',
                     paused: preemptedProcesses[0] || null
                 };
 
                 // Execute process asynchronously (don't await to avoid blocking)
-                executor.executeProcess(processInfo).catch(() => { });
+                executor.executeProcess(executionPayload).catch(error => {
+                    systemLogQueries.addLog('error', `Unhandled execution error for process ${process_id}`,
+                        JSON.stringify({ process_id, error: error.message, function: 'manageQueue' }));
+                });
 
                 return {
                     process_id,
@@ -186,6 +194,20 @@ class QueueManager {
      * @returns {Promise<Object|null>} Next process info or null if queue is empty
      */
     async startNextProcess() {
+        if (this._startingNext) return null;
+        this._startingNext = true;
+        try {
+            return await this._startNextProcessInternal();
+        } finally {
+            this._startingNext = false;
+        }
+    }
+
+    /**
+     * Internal implementation of startNextProcess (protected by lock)
+     * @returns {Promise<Object|null>} Next process info or null if queue is empty
+     */
+    async _startNextProcessInternal() {
         try {
             // Check if there are any active processes
             const activeProcesses = await getActiveProcesses();
@@ -215,14 +237,17 @@ class QueueManager {
 
             // Execute the process
             const executor = getProcessExecutor();
-            const processInfo = {
+            const executionPayload = {
                 process_id: nextProcess.id,
                 status: 'active',
                 paused: null
             };
 
             // Execute process asynchronously (don't await to avoid blocking)
-            executor.executeProcess(processInfo).catch(() => { });
+            executor.executeProcess(executionPayload).catch(error => {
+                systemLogQueries.addLog('error', `Unhandled execution error for process ${nextProcess.id}`,
+                    JSON.stringify({ process_id: nextProcess.id, error: error.message, function: 'startNextProcess' }));
+            });
 
             return null;
 

@@ -21,7 +21,7 @@ const { LOG_CODES } = require('../utility/AdminLogs');
 const { PERMISSIONS } = require('../Settings/admin/permissions');
 const { createProcess } = require('../Processes/createProcesses');
 const { queueManager } = require('../Processes/queueManager');
-const { hasPermission, handleError, getUserInfo, assertUserMatches, updateComponentsV2AfterSeparator, createAllianceSelectionComponents } = require('../utility/commonFunctions');
+const { hasPermission, handleError, getUserInfo, assertUserMatches, getAlliancesForUser, updateComponentsV2AfterSeparator, createAllianceSelectionComponents } = require('../utility/commonFunctions');
 const { createUniversalPaginationButtons, parsePaginationCustomId } = require('../Pagination/universalPagination');
 const { getEmojiMapForUser, getComponentEmoji, getGlobalEmojiMap } = require('../utility/emojis');
 
@@ -184,33 +184,6 @@ async function handleIdChannelButton(interaction) {
 
     } catch (error) {
         await handleError(interaction, lang, error, 'handleIdChannelButton');
-    }
-}
-
-/**
- * Gets alliances available to a user based on their permissions
- * @param {Object} adminData - Admin data from database
- * @returns {Array} Array of alliance objects
- */
-function getAlliancesForUser(adminData) {
-    try {
-        // Owner and full access can see all alliances
-        if (adminData.is_owner || (adminData.permissions & PERMISSIONS.FULL_ACCESS)) {
-            return allianceQueries.getAllAlliances();
-        }
-
-        // Player management users can only see their assigned alliances
-        if (adminData.permissions & PERMISSIONS.PLAYER_MANAGEMENT) {
-            const allianceIds = JSON.parse(adminData.alliances || '[]');
-            return allianceIds
-                .map(id => allianceQueries.getAllianceById(id))
-                .filter(alliance => alliance !== undefined);
-        }
-
-        return [];
-    } catch (error) {
-        console.error('Error getting alliances for user:', error);
-        return [];
     }
 }
 

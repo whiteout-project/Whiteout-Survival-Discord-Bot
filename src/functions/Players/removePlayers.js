@@ -18,7 +18,7 @@ const { LOG_CODES } = require('../utility/AdminLogs');
 const { PERMISSIONS } = require('../Settings/admin/permissions');
 const { createUniversalPaginationButtons, parsePaginationCustomId } = require('../Pagination/universalPagination');
 const { getFurnaceReadable } = require('./furnaceReadable');
-const { getUserInfo, assertUserMatches, handleError, hasPermission, updateComponentsV2AfterSeparator, createAllianceSelectionComponents } = require('../utility/commonFunctions');
+const { getUserInfo, assertUserMatches, handleError, hasPermission, getAlliancesForUser, updateComponentsV2AfterSeparator, createAllianceSelectionComponents } = require('../utility/commonFunctions');
 const { getEmojiMapForUser, getComponentEmoji } = require('../utility/emojis');
 
 /**
@@ -91,7 +91,7 @@ async function handleRemovePlayersButton(interaction) {
         }
 
         // Create alliance selection embed and dropdown
-        const { components } = createAllianceSelectionContainer(interaction, alliancesWithMembers, lang);
+        const { components } = createAllianceSelectionContainer(interaction, alliancesWithMembers, lang, playerCountMap);
 
         await interaction.update({
             components: components,
@@ -105,50 +105,9 @@ async function handleRemovePlayersButton(interaction) {
 }
 
 /**
- * Gets alliances available to a user based on their permissions
- * @param {Object} adminData - Admin data from database
- * @returns {Array} Array of alliance objects
- */
-function getAlliancesForUser(adminData) {
-    try {
-        // Owner and full access can see all alliances
-        if (adminData.is_owner || (adminData.permissions & PERMISSIONS.FULL_ACCESS)) {
-            return allianceQueries.getAllAlliances();
-        }
-
-        // Player management users can only see their assigned alliances
-        if (adminData.permissions & PERMISSIONS.PLAYER_MANAGEMENT) {
-            const assignedAlliances = JSON.parse(adminData.alliances || '[]');
-
-            if (assignedAlliances.length === 0) {
-                return [];
-            }
-
-            return assignedAlliances.map(allianceId => {
-                const alliance = allianceQueries.getAllianceById(allianceId);
-                return alliance;
-            }).filter(Boolean); // Remove null/undefined entries
-        }
-
-        return [];
-    } catch (error) {
-        console.error('Error getting alliances for user:', error);
-        return [];
-    }
-}
-
-/**
- * Creates the alliance selection embed and dropdown with pagination
- * @param {import('discord.js').ButtonInteraction} interaction - The button interaction
- * @param {Array} alliances - Array of alliance objects
- * @param {Object} lang - Language object
- * @param {number} page - Current page number (default 0)
- * @returns {Object} Embed and components
- */
-/**
  * Creates alliance selection embed using shared utility with player count info
  */
-function createAllianceSelectionContainer(interaction, alliances, lang, page = 0) {
+function createAllianceSelectionContainer(interaction, alliances, lang, playerCountMap, page = 0) {
     return createAllianceSelectionComponents({
         interaction,
         alliances,
@@ -162,17 +121,14 @@ function createAllianceSelectionContainer(interaction, alliances, lang, page = 0
         description: lang.players.removePlayer.content.description.base,
         accentColor: 16711937, // Red
         showAll: false,
-        optionMapper: (alliance) => {
-            const playerCount = playerQueries.getPlayersByAllianceId(alliance.id).length;
-            return {
-                label: alliance.name,
-                value: alliance.id.toString(),
-                description: lang.players.removePlayer.selectMenu.allianceSelect.description
-                    .replace('{alliancePriority}', alliance.priority)
-                    .replace('{playerCount}', playerCount),
-                emoji: getComponentEmoji(getEmojiMapForUser(interaction.user.id), '1001')
-            };
-        }
+        optionMapper: (alliance) => ({
+            label: alliance.name,
+            value: alliance.id.toString(),
+            description: lang.players.removePlayer.selectMenu.allianceSelect.description
+                .replace('{alliancePriority}', alliance.priority)
+                .replace('{playerCount}', playerCountMap[alliance.id] || 0),
+            emoji: getComponentEmoji(getEmojiMapForUser(interaction.user.id), '1001')
+        })
     });
 }
 
@@ -348,7 +304,7 @@ async function handleRemovePlayersAlliancePagination(interaction) {
             return (playerCountMap[alliance.id] || 0) > 0;
         });
 
-        const { components } = createAllianceSelectionContainer(interaction, alliancesWithMembers, lang, newPage);
+        const { components } = createAllianceSelectionContainer(interaction, alliancesWithMembers, lang, playerCountMap, newPage);
 
         await interaction.update({
             components: components,

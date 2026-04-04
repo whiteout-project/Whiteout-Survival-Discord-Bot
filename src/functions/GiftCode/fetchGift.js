@@ -5,6 +5,7 @@ const { giftCodeQueries, giftCodeChannelQueries, adminQueries, allianceQueries, 
 const { createRedeemProcess } = require('./redeemFunction');
 const languages = require('../../i18n');
 const { getUserInfo, handleError } = require('../utility/commonFunctions');
+const { replaceEmojiPlaceholders, getGlobalEmojiMap } = require('../utility/emojis');
 const { GIFT_CODE_API_CONFIG } = require('../utility/apiConfig');
 
 const isDevMode = process.env.WOSLAND_DEV_MODE === '1';
@@ -42,7 +43,20 @@ class GiftCodeAPI {
 
         // Start periodic API synchronization
         this.startApiCheck();
+    }
 
+    /**
+     * Destroys the API client, cleaning up timers and connections.
+     */
+    destroy() {
+        if (this.validationTimer) {
+            clearInterval(this.validationTimer);
+            this.validationTimer = null;
+        }
+        if (this.httpAgent) {
+            this.httpAgent.destroy();
+            this.httpAgent = null;
+        }
     }
 
     /**
@@ -116,16 +130,17 @@ class GiftCodeAPI {
             // Initial delay before first check
             await this.sleep(60000); // 1 minute
 
+            // Run validation on its own independent timer so it never blocks API polling.
+            // Previous design awaited validateExistingCodes() inside the sync loop,
+            // which blocked new-code discovery for the entire duration of the validation
+            // queue (often 1-2+ hours when auto-redeem processes were active).
+            this.startValidationTimer();
+
             while (true) {
                 try {
                     const success = await this.syncWithAPI();
 
                     if (success) {
-                        // Also check for codes that need revalidation (24 hours)
-                        await this.validateExistingCodes().catch(error => {
-                            if (isDevMode) console.error('Error validating existing codes:', error);
-                        });
-
                         // Reset backoff on success
                         this.currentBackoff = this.errorBackoffTime;
                         this.checkInterval = this.randomInt(this.minCheckInterval, this.maxCheckInterval);
@@ -154,6 +169,29 @@ class GiftCodeAPI {
     }
 
     /**
+     * Starts an independent timer for periodic code revalidation.
+     * Runs every 6 hours, decoupled from the sync loop to avoid blocking new-code discovery.
+     */
+    startValidationTimer() {
+        const VALIDATION_INTERVAL = 6 * 60 * 60 * 1000; // 6 hours
+
+        // Run first validation after 5 minutes (give auto-redeem time to finish startup work)
+        const INITIAL_DELAY = 5 * 60 * 1000;
+
+        setTimeout(() => {
+            this.validateExistingCodes().catch(error => {
+                if (isDevMode) console.error('Error in initial code validation:', error);
+            });
+
+            this.validationTimer = setInterval(() => {
+                this.validateExistingCodes().catch(error => {
+                    if (isDevMode) console.error('Error validating existing codes:', error);
+                });
+            }, VALIDATION_INTERVAL);
+        }, INITIAL_DELAY);
+    }
+
+    /**
      * Validate existing gift codes that haven't been checked in 24 hours
      */
     async validateExistingCodes() {
@@ -161,8 +199,6 @@ class GiftCodeAPI {
             const codesToValidate = giftCodeQueries.getCodesNeedingValidation();
 
             if (codesToValidate.length === 0) {
-                // to-do: Implement debug mode to uncomment this line
-                // console.log('ℹ️ No gift codes need revalidation');
                 return;
             }
 
@@ -372,7 +408,7 @@ class GiftCodeAPI {
                                     try {
                                         await this.createAutoRedeemProcessForCodeAndAlliance(code, alliance, isVipCode);
                                     } catch (error) {
-                                        handleError(null, null, error, `autoRedeemProcessCreation_${code}_${alliance.id}`, false);
+                                        await handleError(null, null, error, `autoRedeemProcessCreation_${code}_${alliance.id}`, false);
                                     }
                                 }
                             }
@@ -769,13 +805,14 @@ class GiftCodeAPI {
                 if (giftChannels && giftChannels.length > 0) {
                     // Use English for channel embeds (public channels, no per-user lang)
                     const enLang = languages['en'] || languages[Object.keys(languages)[0]];
+                    const globalEmojiMap = getGlobalEmojiMap();
 
                     for (const { code, date } of validCodes) {
                         const channelEmbed = new EmbedBuilder()
-                            .setTitle(enLang.giftCode.apiGiftCode.content.title)
+                            .setTitle(replaceEmojiPlaceholders(enLang.giftCode.apiGiftCode.content.title, globalEmojiMap))
                             .setFields({
-                                name: enLang.giftCode.apiGiftCode.content.giftCodeDetailsField.name,
-                                value: enLang.giftCode.apiGiftCode.content.giftCodeDetailsField.value
+                                name: replaceEmojiPlaceholders(enLang.giftCode.apiGiftCode.content.giftCodeDetailsField.name, globalEmojiMap),
+                                value: replaceEmojiPlaceholders(enLang.giftCode.apiGiftCode.content.giftCodeDetailsField.value, globalEmojiMap)
                                     .replace('{giftCode}', code)
                                     .replace('{date}', date)
                                     .replace('{source}', enLang.giftCode.apiGiftCode.content.sourceAPI)
@@ -786,7 +823,7 @@ class GiftCodeAPI {
 
                         if (autoRedeemCount > 0) {
                             channelEmbed.addFields({
-                                name: enLang.giftCode.apiGiftCode.content.autoRedeem,
+                                name: replaceEmojiPlaceholders(enLang.giftCode.apiGiftCode.content.autoRedeem, globalEmojiMap),
                                 value: enLang.giftCode.apiGiftCode.content.autoRedeemValue
                                     .replace('{count}', autoRedeemCount)
                             });

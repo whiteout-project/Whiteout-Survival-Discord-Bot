@@ -9,6 +9,7 @@ const {
 	ModalBuilder,
 	SeparatorBuilder,
 	SeparatorSpacingSize,
+	StringSelectMenuBuilder,
 	TextDisplayBuilder,
 	TextInputBuilder,
 	TextInputStyle
@@ -30,8 +31,72 @@ const {
 	idChannelQueries,
 	furnaceChangeQueries,
 	nicknameChangeQueries,
-	migrationQueries
+	giftCodeChannelQueries,
+	db
 } = require('../utility/database');
+
+/** Maps migration type keys to their DB file requirements and table dependencies */
+const MIGRATION_TYPES = {
+	alliances: { primaryFile: 'alliance.sqlite', clearTables: ['giftcode_usage', 'gift_code_channels', 'alliance_logs', 'id_channels', 'players', 'alliance'] },
+	admins: { primaryFile: 'settings.sqlite', clearTables: ['admin_logs', 'admins', 'users'] },
+	players: { primaryFile: 'users.sqlite', clearTables: ['players'] },
+	idChannels: { primaryFile: 'id_channel.sqlite', clearTables: ['id_channels'] },
+	changes: { primaryFile: 'changes.sqlite', clearTables: ['furnace_changes', 'nickname_changes'] },
+	notifications: { primaryFile: 'beartime.sqlite', clearTables: ['notifications'] }
+};
+
+const EXCLUDED_DB_FILES = ['attendance.sqlite', 'backup.sqlite', 'svs.sqlite'];
+
+/** FK-safe deletion order (children before parents) */
+const FK_SAFE_DELETE_ORDER = [
+	'giftcode_usage', 'furnace_changes', 'nickname_changes', 'id_channels',
+	'gift_code_channels', 'players', 'alliance_logs', 'alliance',
+	'admin_logs', 'admins', 'users', 'notifications'
+];
+
+/**
+ * Detect available migration types from extracted DB file names
+ * @param {string[]} foundDbFileNames - Relative file paths from extraction
+ * @returns {string[]} Array of migration type keys
+ */
+function detectAvailableTypes(foundDbFileNames) {
+	const fileNames = new Set(
+		foundDbFileNames
+			.map(f => path.basename(f))
+			.filter(name => !EXCLUDED_DB_FILES.includes(name))
+	);
+	const available = [];
+
+	for (const [typeKey, config] of Object.entries(MIGRATION_TYPES)) {
+		if (fileNames.has(config.primaryFile)) {
+			available.push(typeKey);
+		}
+	}
+
+	return available;
+}
+
+/**
+ * Clear tables for selected migration types in FK-safe order
+ * @param {string[]} selectedTypes - Array of migration type keys
+ */
+function clearSelectedData(selectedTypes) {
+	const tablesToClear = new Set();
+	for (const typeKey of selectedTypes) {
+		const config = MIGRATION_TYPES[typeKey];
+		if (config) {
+			config.clearTables.forEach(t => tablesToClear.add(t));
+		}
+	}
+
+	db.transaction(() => {
+		for (const table of FK_SAFE_DELETE_ORDER) {
+			if (tablesToClear.has(table)) {
+				db.prepare(`DELETE FROM ${table}`).run();
+			}
+		}
+	})();
+}
 
 /**
  * Creates database migration button
@@ -212,13 +277,55 @@ async function handleDBMigrationModal(interaction) {
 				return await interaction.update({ components: errorContent, flags: MessageFlags.IsComponentsV2 });
 			}
 
-			// Validation passed - remove test artifacts and proceed to show confirmation
+			// Validation passed - detect available migration types
+			const availableTypes = detectAvailableTypes(foundDbFiles);
+
 			await fs.promises.unlink(tempZipPath).catch(() => {});
 			await fs.promises.rm(testExtractPath, { recursive: true, force: true }).catch(() => {});
 
-			// Show warning confirmation
+			if (availableTypes.length === 0) {
+				const errorContainer = [
+					new ContainerBuilder()
+						.setAccentColor(0xe74c3c)
+						.addTextDisplayComponents(
+							new TextDisplayBuilder().setContent(
+								`${lang.settings.migration.content.title.error}\n` +
+								`${lang.settings.migration.errors.noDbFiles}`
+							)
+						)
+				];
+				const errorContent = updateComponentsV2AfterSeparator(interaction, errorContainer);
+				return await interaction.update({ components: errorContent, flags: MessageFlags.IsComponentsV2 });
+			}
+
+			// Store file URL, password, and available types temporarily
+			const tempId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+			if (!global.pendingDBMigrations) global.pendingDBMigrations = new Map();
+			global.pendingDBMigrations.set(tempId, {
+				fileUrl: file.url,
+				password: password,
+				userId: interaction.user.id,
+				availableTypes: availableTypes,
+				selectedTypes: [...availableTypes],
+				expiresAt: Date.now() + 5 * 60 * 1000
+			});
+
+			// Build select menu with available data types
+			const selectMenu = new StringSelectMenuBuilder()
+				.setCustomId(`db_migration_select_${tempId}_${interaction.user.id}`)
+				.setPlaceholder(lang.settings.migration.selectMenu.placeholder)
+				.setMinValues(1)
+				.setMaxValues(availableTypes.length)
+				.addOptions(availableTypes.map(typeKey => ({
+					label: lang.settings.migration.selectMenu.types[typeKey] || typeKey,
+					value: typeKey,
+					default: true
+				})));
+
+			const selectRow = new ActionRowBuilder().addComponents(selectMenu);
+
 			const confirmButton = new ButtonBuilder()
-				.setCustomId(`db_migration_confirm_${interaction.user.id}`)
+				.setCustomId(`db_migration_confirm_${tempId}_${interaction.user.id}`)
 				.setLabel(lang.settings.migration.buttons.confirm)
 				.setStyle(ButtonStyle.Danger)
 				.setEmoji(getComponentEmoji(getEmojiMapForUser(interaction.user.id), '1050'));
@@ -230,19 +337,6 @@ async function handleDBMigrationModal(interaction) {
 				.setEmoji(getComponentEmoji(getEmojiMapForUser(interaction.user.id), '1051'));
 
 			const buttonRow = new ActionRowBuilder().addComponents(confirmButton, cancelButton);
-
-			// Store file URL and password temporarily
-			const tempId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-			if (!global.pendingDBMigrations) global.pendingDBMigrations = new Map();
-			global.pendingDBMigrations.set(tempId, {
-				fileUrl: file.url,
-				password: password,
-				userId: interaction.user.id,
-				expiresAt: Date.now() + 5 * 60 * 1000 // 5 minutes
-			});
-
-			// Store tempId for confirmation
-			confirmButton.setCustomId(`db_migration_confirm_${tempId}_${interaction.user.id}`);
 
 			const container = [
 				new ContainerBuilder()
@@ -256,6 +350,7 @@ async function handleDBMigrationModal(interaction) {
 					.addSeparatorComponents(
 						new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true)
 					)
+					.addActionRowComponents(selectRow)
 					.addActionRowComponents(buttonRow)
 			];
 
@@ -503,8 +598,8 @@ async function handleDBMigrationConfirm(interaction) {
 				.filter(fileName => fileName.endsWith('.db') || fileName.endsWith('.sqlite'))
 				.filter(fileName => {
 					const name = path.basename(fileName);
-					// Exclude specific databases
-					const excluded = ['beartime.sqlite', 'attendance.sqlite', 'backup.sqlite', 'svs.sqlite'];
+					// Exclude specific databases 
+					const excluded = ['attendance.sqlite', 'backup.sqlite', 'svs.sqlite'];
 					const include = !excluded.includes(name);
 					// if (!include) console.log(`[MIGRATION] Excluding file by name: ${name}`);
 					return include;
@@ -583,7 +678,8 @@ async function handleDBMigrationConfirm(interaction) {
 			}
 
 			// Perform migration
-			const migrationResult = await performMigration(dbFiles, extractPath, interaction.user.id);
+			const selectedTypes = pending.selectedTypes || pending.availableTypes || Object.keys(MIGRATION_TYPES);
+			const migrationResult = await performMigration(dbFiles, extractPath, interaction.user.id, selectedTypes);
 
 			// Clean up
 			await fs.promises.unlink(tempZipPath).catch(() => { });
@@ -605,7 +701,8 @@ async function handleDBMigrationConfirm(interaction) {
 									.replace('{adminsCount}', migrationResult.stats.admins)
 									.replace('{idChannelsCount}', migrationResult.stats.idChannels)
 									.replace('{furnaceChangesCount}', migrationResult.stats.furnaceChanges)
-									.replace('{nicknameChangesCount}', migrationResult.stats.nicknameChanges)}`
+									.replace('{nicknameChangesCount}', migrationResult.stats.nicknameChanges)
+									.replace('{notificationsCount}', migrationResult.stats.notifications)}`
 							)
 						)
 				];
@@ -738,16 +835,18 @@ function convertOldDateToISO(oldDate) {
  * @param {Array} dbFiles - Array of {name, path} objects
  * @param {string} extractPath - Path to extracted files
  * @param {string} ownerId - Owner user ID
+ * @param {string[]} selectedTypes - Array of migration type keys to process
  * @returns {Promise<Object>}
  */
-async function performMigration(dbFiles, extractPath, ownerId) {
+async function performMigration(dbFiles, extractPath, ownerId, selectedTypes) {
 	const stats = {
 		alliances: 0,
 		players: 0,
 		admins: 0,
 		idChannels: 0,
 		furnaceChanges: 0,
-		nicknameChanges: 0
+		nicknameChanges: 0,
+		notifications: 0
 	};
 
 	try {
@@ -756,41 +855,60 @@ async function performMigration(dbFiles, extractPath, ownerId) {
 			dbMap[file.name] = file.path;
 		});
 
-		// Clear existing data before migration
-		await clearExistingData();
+		// Auto-include alliances if dependent types are selected and alliance DB is available
+		const allianceDependents = ['players', 'idChannels', 'admins'];
+		if (selectedTypes.some(t => allianceDependents.includes(t)) && !selectedTypes.includes('alliances') && dbMap['alliance.sqlite']) {
+			selectedTypes = [...selectedTypes, 'alliances'];
+		}
+
+		// Clear only tables related to selected types
+		clearSelectedData(selectedTypes);
 
 		// Map to store old alliance ID -> new alliance ID
 		const allianceIdMap = new Map();
 
 		// Step 1: Migrate alliances first (needed for foreign keys)
-		if (dbMap['alliance.sqlite']) {
+		if (selectedTypes.includes('alliances') && dbMap['alliance.sqlite']) {
 			const result = await migrateAlliances(dbMap['alliance.sqlite'], dbMap['giftcode.sqlite'], ownerId, allianceIdMap);
 			stats.alliances = result;
 		}
 
 		// Step 2: Migrate admins
-		if (dbMap['settings.sqlite']) {
+		if (selectedTypes.includes('admins') && dbMap['settings.sqlite']) {
 			const result = await migrateAdmins(dbMap['settings.sqlite'], allianceIdMap);
 			stats.admins = result;
 		}
 
 		// Step 3: Migrate players (requires alliances to exist)
-		if (dbMap['users.sqlite']) {
+		if (selectedTypes.includes('players') && dbMap['users.sqlite']) {
 			const result = await migratePlayers(dbMap['users.sqlite'], allianceIdMap, ownerId);
 			stats.players = result;
 		}
 
 		// Step 4: Migrate ID channels
-		if (dbMap['id_channel.sqlite']) {
+		if (selectedTypes.includes('idChannels') && dbMap['id_channel.sqlite']) {
 			const result = await migrateIdChannels(dbMap['id_channel.sqlite'], allianceIdMap);
 			stats.idChannels = result;
 		}
 
 		// Step 5: Migrate changes
-		if (dbMap['changes.sqlite']) {
+		if (selectedTypes.includes('changes') && dbMap['changes.sqlite']) {
 			const result = await migrateChanges(dbMap['changes.sqlite']);
 			stats.furnaceChanges = result.furnace;
 			stats.nicknameChanges = result.nickname;
+		}
+
+		// Step 6: Migrate notifications from beartime.sqlite
+		if (selectedTypes.includes('notifications') && dbMap['beartime.sqlite']) {
+			const notifResult = migrateNotifications(dbMap['beartime.sqlite']);
+			stats.notifications = notifResult;
+
+			// Re-initialize the scheduler to pick up all migrated notifications
+			// initialize() properly handles past triggers (recalculates repeating, deactivates expired)
+			const { notificationScheduler } = require('../Notification/notificationScheduler');
+			if (notificationScheduler.client) {
+				await notificationScheduler.initialize(notificationScheduler.client);
+			}
 		}
 
 		return { success: true, stats };
@@ -798,14 +916,6 @@ async function performMigration(dbFiles, extractPath, ownerId) {
 		console.error('Migration error:', error);
 		return { success: false, error: error.message };
 	}
-}
-
-/**
- * Clear existing data from all tables (except settings and custom_emojis)
- * @returns {Promise<void>}
- */
-async function clearExistingData() {
-	migrationQueries.clearAllData();
 }
 
 /**
@@ -870,6 +980,24 @@ async function migrateAlliances(alliancePath, giftcodePath, ownerId, allianceIdM
 			allianceIdMap.set(old.alliance_id, result.lastInsertRowid);
 			priority++;
 			count++;
+		}
+
+		// Migrate gift code channels from giftcode.sqlite
+		if (giftcodeDb) {
+			try {
+				const giftCodeChannels = giftcodeDb.prepare('SELECT CAST(channel_id AS TEXT) as channel_id FROM giftcode_channel').all();
+				for (const row of giftCodeChannels) {
+					if (row.channel_id) {
+						try {
+							giftCodeChannelQueries.addChannel(row.channel_id, ownerId);
+						} catch (e) {
+							// Skip duplicates
+						}
+					}
+				}
+			} catch (e) {
+				// Table might not exist, ignore
+			}
 		}
 
 		return count;
@@ -1082,10 +1210,257 @@ async function migrateChanges(changesPath) {
 	}
 }
 
+/**
+ * Convert old mention_type to JS bot mention JSON format
+ * @param {string} mentionType - Old format: "role_{id}", "member_{id}", "everyone", "none"
+ * @param {string|null} mentionMessage - Embed mention_message containing @tag placeholders
+ * @returns {string|null} JSON string for mention column, or null
+ */
+function buildMentionJson(mentionType, mentionMessage) {
+	if (!mentionType || mentionType === 'none') return null;
+
+	let mentionValue;
+	if (mentionType === 'everyone') {
+		mentionValue = 'everyone:';
+	} else if (mentionType.startsWith('role_')) {
+		mentionValue = `role:${mentionType.substring(5)}`;
+	} else if (mentionType.startsWith('member_')) {
+		mentionValue = `user:${mentionType.substring(7)}`;
+	} else {
+		return null;
+	}
+
+	// Extract tag names from mention_message (e.g., @tag, @777)
+	const tagNames = [];
+	if (mentionMessage) {
+		const tagMatches = mentionMessage.match(/@(\w+)/g);
+		if (tagMatches) {
+			tagMatches.forEach(match => tagNames.push(match.substring(1)));
+		}
+	}
+
+	// Default tag name if no mention_message or no tags found
+	if (tagNames.length === 0) {
+		tagNames.push('tag');
+	}
+
+	// Build mention JSON with tag mappings for the message component
+	const mentionObj = { message: {} };
+	tagNames.forEach(tagName => {
+		mentionObj.message[tagName] = mentionValue;
+	});
+
+	return JSON.stringify(mentionObj);
+}
+
+/**
+ * Convert ISO date string to Unix timestamp (seconds)
+ * @param {string|null} isoString - ISO 8601 date string
+ * @returns {number|null} Unix timestamp in seconds, or null
+ */
+function isoToUnixTimestamp(isoString) {
+	if (!isoString) return null;
+	const date = new Date(isoString);
+	return isNaN(date.getTime()) ? null : Math.floor(date.getTime() / 1000);
+}
+
+/**
+ * Derive a notification name from the old description
+ * @param {string} description - Old notification description
+ * @returns {string} Clean notification name
+ */
+function deriveNotificationName(description) {
+	if (!description) return 'Migrated Notification';
+
+	// Strip "EMBED_MESSAGE:" prefix if present
+	let name = description.replace(/^EMBED_MESSAGE:/i, '').trim();
+
+	// Strip markdown and Discord mentions for a cleaner name
+	name = name.replace(/<@[&!]?\d+>/g, '').trim();
+
+	// Take first line only
+	name = name.split('\n')[0].trim();
+
+	// Truncate to 50 characters
+	if (name.length > 50) {
+		name = name.substring(0, 47) + '...';
+	}
+
+	return name || 'Migrated Notification';
+}
+
+/**
+ * Migrate notification data from beartime.sqlite
+ * @param {string} beartimePath - Path to beartime.sqlite
+ * @returns {number} Number of migrated notifications
+ */
+function migrateNotifications(beartimePath) {
+	const oldDb = new Database(beartimePath, { readonly: true });
+
+	// Raw insert to preserve original created_at
+	const insertNotification = db.prepare(`
+		INSERT INTO notifications (name, type, completed, guild_id, channel_id, hour, minute, message_content, title, description,
+		color, image_url, thumbnail_url, footer, author, fields, pattern, mention, repeat_status, repeat_frequency,
+		embed_toggle, is_active, created_at, last_trigger, next_trigger, created_by)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`);
+
+	try {
+		// Fetch all notifications with their embeds via LEFT JOIN
+		const notifications = oldDb.prepare(`
+			SELECT
+				bn.id,
+				CAST(bn.guild_id AS TEXT) as guild_id,
+				CAST(bn.channel_id AS TEXT) as channel_id,
+				bn.hour,
+				bn.minute,
+				bn.description,
+				bn.mention_type,
+				bn.repeat_enabled,
+				bn.repeat_minutes,
+				bn.is_enabled,
+				bn.created_at,
+				CAST(bn.created_by AS TEXT) as created_by,
+				bn.last_notification,
+				bn.next_notification,
+				bne.title as embed_title,
+				bne.description as embed_description,
+				bne.color as embed_color,
+				bne.image_url,
+				bne.thumbnail_url,
+				bne.footer as embed_footer,
+				bne.author as embed_author,
+				bne.mention_message
+			FROM bear_notifications bn
+			LEFT JOIN bear_notification_embeds bne ON bn.id = bne.notification_id
+		`).all();
+
+		// Build notification_days lookup (for weekly scheduling)
+		let daysMap = new Map();
+		try {
+			const days = oldDb.prepare('SELECT notification_id, weekday FROM notification_days').all();
+			days.forEach(d => daysMap.set(d.notification_id, d.weekday));
+		} catch {
+			// Table might not exist in older schema versions
+		}
+
+		let count = 0;
+
+		for (const old of notifications) {
+			const name = deriveNotificationName(old.description);
+			const hasEmbed = old.embed_title !== null;
+
+			// Determine repeat settings
+			let repeatStatus = old.repeat_enabled ? 1 : 0;
+			let repeatFrequency = null;
+
+			if (old.repeat_enabled) {
+				if (old.repeat_minutes === -1) {
+					// Weekly scheduling — convert from notification_days
+					const weekdayStr = daysMap.get(old.id);
+					if (weekdayStr) {
+						// Old format: "1|3|5" (pipe-separated, ISO: 1=Mon..7=Sun)
+						// JS format: "weekly:1,3,5" (comma-separated, JS: 0=Sun..6=Sat)
+						const days = weekdayStr.split('|').map(d => {
+							const day = parseInt(d);
+							return day === 7 ? 0 : day; // Convert ISO Sunday (7) to JS Sunday (0)
+						});
+						repeatFrequency = `weekly:${days.join(',')}`;
+					} else {
+						// Weekly flag but no days defined — default to daily
+						repeatFrequency = 86400; // 24 hours in seconds
+					}
+				} else if (old.repeat_minutes > 0) {
+					// Standard repeat — convert minutes to seconds
+					repeatFrequency = old.repeat_minutes * 60;
+				}
+			}
+
+			// Build mention JSON
+			const mentionJson = buildMentionJson(old.mention_type, old.mention_message);
+
+			// Use embed's mention_message as message_content (preserving @tag placeholders)
+			const messageContent = old.mention_message || null;
+
+			// Convert timestamps
+			const lastTrigger = isoToUnixTimestamp(old.last_notification);
+			const nextTrigger = isoToUnixTimestamp(old.next_notification);
+
+			try {
+				insertNotification.run(
+					name,                                          // name
+					'server',                                      // type (all have guild_id)
+					1,                                             // completed
+					old.guild_id,                                  // guild_id
+					old.channel_id,                                // channel_id
+					old.hour,                                      // hour
+					old.minute,                                    // minute
+					messageContent,                                // message_content
+					hasEmbed ? old.embed_title : null,             // title
+					hasEmbed ? old.embed_description : null,       // description
+					hasEmbed && old.embed_color != null ? `#${parseInt(old.embed_color).toString(16).padStart(6, '0')}` : null, // color
+					hasEmbed ? old.image_url : null,               // image_url
+					hasEmbed ? old.thumbnail_url : null,           // thumbnail_url
+					hasEmbed ? old.embed_footer : null,            // footer
+					hasEmbed ? old.embed_author : null,            // author
+					null,                                          // fields
+					'time',                                        // pattern
+					mentionJson,                                   // mention
+					repeatStatus,                                  // repeat_status
+					repeatFrequency,                               // repeat_frequency
+					hasEmbed ? 1 : 0,                              // embed_toggle
+					old.is_enabled ? 1 : 0,                        // is_active
+					convertOldDateToISO(old.created_at),           // created_at
+					lastTrigger,                                   // last_trigger
+					nextTrigger,                                   // next_trigger
+					old.created_by                                 // created_by
+				);
+				count++;
+			} catch (e) {
+				console.warn(`Skipping notification ${old.id}: ${e.message}`);
+			}
+		}
+
+		return count;
+	} finally {
+		oldDb.close();
+	}
+}
+
+/**
+ * Handle migration data type select menu interaction
+ * @param {import('discord.js').StringSelectMenuInteraction} interaction
+ */
+async function handleDBMigrationSelect(interaction) {
+	const { lang } = getUserInfo(interaction.user.id);
+	try {
+		const parts = interaction.customId.split('_');
+		const tempId = parts[3];
+		const expectedUserId = parts[4];
+
+		if (!(await assertUserMatches(interaction, expectedUserId, lang))) return;
+
+		const pending = global.pendingDBMigrations?.get(tempId);
+		if (!pending || pending.expiresAt < Date.now()) {
+			global.pendingDBMigrations?.delete(tempId);
+			return await interaction.reply({
+				content: lang.settings.migration.errors.uploadExpired,
+				ephemeral: true
+			});
+		}
+
+		pending.selectedTypes = interaction.values;
+		await interaction.deferUpdate();
+	} catch (error) {
+		await handleError(interaction, lang, error, 'handleDBMigrationSelect');
+	}
+}
+
 module.exports = {
 	createDBMigrationButton,
 	handleDBMigrationButton,
 	handleDBMigrationModal,
 	handleDBMigrationConfirm,
-	handleDBMigrationCancel
+	handleDBMigrationCancel,
+	handleDBMigrationSelect
 };

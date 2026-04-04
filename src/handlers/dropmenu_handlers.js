@@ -33,6 +33,7 @@ const emojisView = require('../functions/Settings/theme/emojisView');
 const emojisExport = require('../functions/Settings/theme/emojisExport');
 const emojisDelete = require('../functions/Settings/theme/emojisDelete');
 const featureAccess = require('../functions/Settings/featureAccess');
+const dbMigration = require('../functions/Settings/migration');
 const buildings = require('../functions/Calculators/Buildings/buildings');
 const warAcademy = require('../functions/Calculators/WarAcademy/warAcademy');
 
@@ -41,6 +42,9 @@ const dropdownHandlers = [
     // === String Select Menus ===
     { type: 'string', pattern: /^language_select_/, fn: language.handleLanguageSelection },
     { type: 'string', pattern: /^feature_access_whitelist_select_/, fn: featureAccess.handleWhitelistSelect },
+
+    // Database migration selection
+    { type: 'string', pattern: /^db_migration_select_/, fn: dbMigration.handleDBMigrationSelect },
 
     // Admin selections
     { type: 'string', pattern: /^select_admin_remove_/, fn: admin.handleRemoveAdminSelection },

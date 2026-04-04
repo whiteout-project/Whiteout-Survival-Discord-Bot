@@ -18,7 +18,7 @@ const { allianceQueries } = require('../utility/database');
 const { createProcess, updateProcessProgress, getProcessById } = require('../Processes/createProcesses');
 const { queueManager } = require('../Processes/queueManager');
 const { PERMISSIONS } = require('../Settings/admin/permissions');
-const { getUserInfo, assertUserMatches, handleError, hasPermission, updateComponentsV2AfterSeparator, createAllianceSelectionComponents, getChannelMissingBotPermissions } = require('../utility/commonFunctions');
+const { getUserInfo, assertUserMatches, handleError, hasPermission, getAlliancesForUser, updateComponentsV2AfterSeparator, createAllianceSelectionComponents, getChannelMissingBotPermissions } = require('../utility/commonFunctions');
 const { parsePaginationCustomId } = require('../Pagination/universalPagination');
 const { getEmojiMapForUser, getComponentEmoji } = require('../utility/emojis');
 
@@ -62,7 +62,7 @@ async function handleAddPlayerButton(interaction) {
 
 
         // Get alliances based on user permissions
-        const alliances = await getAlliancesForUser(adminData);
+        const alliances = getAlliancesForUser(adminData);
 
         if (alliances.length === 0) {
             return await interaction.reply({
@@ -82,42 +82,6 @@ async function handleAddPlayerButton(interaction) {
 
     } catch (error) {
         await handleError(interaction, lang, error, 'handleAddPlayerButton');
-    }
-}
-
-/**
- * Gets alliances available to a user based on their permissions
- * @param {Object} adminData - Admin data from database
- * @returns {Array} Array of alliance objects
- */
-async function getAlliancesForUser(adminData) {
-    try {
-
-        const hasFullAccess = hasPermission(adminData, PERMISSIONS.FULL_ACCESS);
-        const hasAccess = hasPermission(adminData, PERMISSIONS.PLAYER_MANAGEMENT);
-        // Owner and full access can see all alliances
-        if (hasFullAccess) {
-            return allianceQueries.getAllAlliances();
-        }
-
-        // Player management users can only see their assigned alliances
-        if (hasAccess) {
-            const assignedAlliances = JSON.parse(adminData.alliances || '[]');
-
-            if (assignedAlliances.length === 0) {
-                return [];
-            }
-
-            return assignedAlliances.map(allianceId => {
-                const alliance = allianceQueries.getAllianceById(allianceId);
-                return alliance;
-            }).filter(Boolean); // Remove null/undefined entries
-        }
-
-        return [];
-    } catch (error) {
-        await handleError(null, null, error, 'getAlliancesForUser', false);
-        return [];
     }
 }
 
@@ -164,7 +128,7 @@ async function handleAddPlayerPagination(interaction) {
         if (!(await assertUserMatches(interaction, expectedUserId, lang))) return;
 
         // Get alliances based on user permissions
-        const alliances = await getAlliancesForUser(adminData);
+        const alliances = getAlliancesForUser(adminData);
         if (alliances.length === 0) {
             return await interaction.reply({
                 content: lang.players.addPlayer.error.noAssignedAlliances,

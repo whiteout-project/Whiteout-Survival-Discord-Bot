@@ -108,7 +108,7 @@ async function handleEditMessageButton(interaction) {
         await interaction.showModal(modal);
 
     } catch (error) {
-        handleError(interaction, lang, error, 'handleEditMessageButton');
+        await handleError(interaction, lang, error, 'handleEditMessageButton');
     }
 }
 
@@ -191,10 +191,10 @@ async function handleUpdateMessageModal(interaction) {
             }
 
         } catch (dbError) {
-            handleError(interaction, lang, dbError, 'handleUpdateMessageModal');
+            await handleError(interaction, lang, dbError, 'handleUpdateMessageModal');
         }
     } catch (error) {
-        handleError(interaction, lang, error, 'handleUpdateMessageModal');
+        await handleError(interaction, lang, error, 'handleUpdateMessageModal');
     }
 }
 

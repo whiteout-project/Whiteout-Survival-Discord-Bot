@@ -835,14 +835,8 @@ function generateFilterDisplayLabels(currentSelection, lang) {
  */
 function getUniqueFurnaceLevels(adminData) {
     const alliances = getFilteredAlliances(adminData);
-    const allPlayers = [];
-
-    for (const alliance of alliances) {
-        const players = playerQueries.getPlayersByAllianceId(alliance.id);
-        allPlayers.push(...players);
-    }
-
-    return [...new Set(allPlayers.map(p => p.furnace_level))].sort((a, b) => a - b);
+    const allianceIds = alliances.map(a => a.id);
+    return playerQueries.getDistinctFurnaceLevels(allianceIds);
 }
 
 /**
@@ -852,16 +846,8 @@ function getUniqueFurnaceLevels(adminData) {
  */
 function getUniqueStates(adminData) {
     const alliances = getFilteredAlliances(adminData);
-    const allPlayers = [];
-
-    for (const alliance of alliances) {
-        const players = playerQueries.getPlayersByAllianceId(alliance.id);
-        allPlayers.push(...players);
-    }
-
-    return [...new Set(allPlayers.map(p => p.state))]
-        .filter(v => v !== null && v !== undefined)
-        .sort((a, b) => a - b);
+    const allianceIds = alliances.map(a => a.id);
+    return playerQueries.getDistinctStates(allianceIds);
 }
 
 /**

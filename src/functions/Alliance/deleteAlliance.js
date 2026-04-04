@@ -123,10 +123,15 @@ async function showDeleteAllianceSelection(interaction, page = 0, lang = {}, all
         .setMaxValues(1);
 
     // Add alliance options
+    // Batch fetch player counts (avoids N+1 query)
+    const allianceIds = currentPageAlliances.map(a => a.id);
+    const playerCountResults = allianceIds.length > 0
+        ? playerQueries.getPlayerCountsByAllianceIds(allianceIds)
+        : [];
+    const playerCountMap = new Map(playerCountResults.map(r => [r.alliance_id, r.player_count]));
+
     currentPageAlliances.forEach(alliance => {
-        // Get player count for this alliance
-        const playersInAlliance = playerQueries.getPlayersByAlliance(alliance.id);
-        const playerCount = playersInAlliance.length;
+        const playerCount = playerCountMap.get(alliance.id) || 0;
 
         selectMenu.addOptions(
             new StringSelectMenuOptionBuilder()
@@ -325,6 +330,8 @@ async function showDeleteConfirmation(interaction, alliance, playerCount, lang) 
  * @param {Object} requesterAdminData - Admin data of the requester
  */
 async function requestDeletionApproval(interaction, alliance, playerCount, requesterAdminData) {
+    const { lang } = getUserInfo(interaction.user.id);
+
     // Get all owner and full-access admins
     const allAdmins = adminQueries.getAllAdmins();
 
@@ -339,8 +346,6 @@ async function requestDeletionApproval(interaction, alliance, playerCount, reque
             components: []
         });
     }
-
-    const { lang } = getUserInfo(interaction.user.id);
 
     const newSection = [
         new ContainerBuilder()
@@ -552,17 +557,11 @@ async function performAllianceDeletion(interaction, allianceId, requesterId = nu
 
                         // Only update if the alliance was actually assigned
                         if (updatedAllianceIds.length !== assignedAllianceIds.length) {
-                            adminQueries.updateAdmin(
-                                admin.user_id,
-                                admin.permissions,
-                                admin.is_owner,
-                                admin.language,
-                                JSON.stringify(updatedAllianceIds)
-                            );
+                            adminQueries.updateAdminAlliances(JSON.stringify(updatedAllianceIds), admin.user_id);
                             adminsUpdated++;
                         }
                     } catch (parseError) {
-                        // Skip this admin if JSON parsing fails
+                        await handleError(null, null, parseError, 'performAllianceDeletion_parseAdminAlliances', false);
                     }
                 }
             }

@@ -95,6 +95,12 @@ function getCategoryLabel(cat, lang) {
     }
 }
 
+/** Returns the human-readable display string for a level key. */
+function getLevelDisplay(key, lang) {
+    if (key === '0') return lang.calculators.warAcademy.notResearched;
+    return lang.calculators.warAcademy.levelDisplay.replace('{key}', key);
+}
+
 /** Maps single-char category code to the i18n skills key. */
 const CAT_KEY_MAP = { i: 'infantry', m: 'marksman', l: 'lancer' };
 
@@ -238,10 +244,10 @@ function calculateUpgrade(skillData, fromKey, toKey, buffs) {
     if (!skillData) return null;
 
     const levelKeys = getSkillLevelKeys(skillData);
-    const fromIdx   = levelKeys.indexOf(String(fromKey));
+    const fromIdx   = fromKey === '0' ? -1 : levelKeys.indexOf(String(fromKey));
     const toIdx     = levelKeys.indexOf(String(toKey));
 
-    if (fromIdx === -1 || toIdx === -1 || fromIdx > toIdx) return null;
+    if ((fromIdx === -1 && fromKey !== '0') || toIdx === -1 || fromIdx >= toIdx) return null;
 
     // Combined speed %: manual input + VP bonus
     const totalSpeedPct = (Number(buffs?.researchSpeed) || 0) + (Number(buffs?.vpBonus) || 0);
@@ -254,7 +260,7 @@ function calculateUpgrade(skillData, fromKey, toKey, buffs) {
     let buffName           = '';
     let totalBuffAmount    = 0;
 
-    for (let i = fromIdx; i <= toIdx; i++) {
+    for (let i = fromIdx + 1; i <= toIdx; i++) {
         const levelData = skillData.levels[levelKeys[i]];
         if (!levelData) continue;
 
@@ -515,7 +521,7 @@ function buildControlsContainer(cat, skillId, fromKey, toKey, pageFrom, pageTo, 
         );
         if (fromKey !== 'x') {
             container.addTextDisplayComponents(
-                new TextDisplayBuilder().setContent(lc.header.from.replace('{level}', fromKey))
+                new TextDisplayBuilder().setContent(lc.header.from.replace('{level}', getLevelDisplay(fromKey, lang)))
             );
         }
     }
@@ -532,8 +538,8 @@ function buildControlsContainer(cat, skillId, fromKey, toKey, pageFrom, pageTo, 
         const levelKeys = getSkillLevelKeys(skillData);
 
         if (fromKey === 'x') {
-            // Show from-level select (all levels except the last)
-            const fromLevelKeys = levelKeys.slice(0, -1);
+            // Show from-level select with "Not Researched" as first option
+            const fromLevelKeys = ['0', ...levelKeys.slice(0, -1)];
             const pf = Math.max(0, parseInt(pageFrom) || 0);
             const startFrom = pf * PAGE_SIZE;
             const sliceFrom = fromLevelKeys.slice(startFrom, startFrom + PAGE_SIZE);
@@ -545,7 +551,7 @@ function buildControlsContainer(cat, skillId, fromKey, toKey, pageFrom, pageTo, 
                             .setCustomId(`calc_wa_from_${cat}_${skillId}_${pf}_${userId}`)
                             .setPlaceholder(lc.placeholders.selectStartingLevel)
                             .addOptions(sliceFrom.map(key => ({
-                                label: lc.levelDisplay.replace('{key}', key),
+                                label: getLevelDisplay(key, lang),
                                 value: key,
                                 default: false
                             })))
@@ -560,8 +566,8 @@ function buildControlsContainer(cat, skillId, fromKey, toKey, pageFrom, pageTo, 
             }
         } else {
             // from-level already chosen — show to-level select
-            const fromIdx = levelKeys.indexOf(fromKey);
-            const toKeys  = fromIdx >= 0 ? levelKeys.slice(fromIdx + 1) : [];
+            const fromIdx = fromKey === '0' ? -1 : levelKeys.indexOf(fromKey);
+            const toKeys  = levelKeys.slice(fromIdx + 1);
             const pt      = Math.max(0, parseInt(pageTo) || 0);
             const startTo = pt * PAGE_SIZE;
             const sliceTo = toKeys.slice(startTo, startTo + PAGE_SIZE);
@@ -637,7 +643,7 @@ function buildResultsContainer(entries, buffs, userId, lang, activeState) {
     // Per-entry upgrade summary
     lines.push(lc.results.skillsList);
     for (const e of entries) {
-        lines.push(`  - ${getSkillDisplayName(cat, e.skillId, lang)}: ${lc.levelDisplay.replace('{key}', e.fromKey)} → ${lc.levelDisplay.replace('{key}', e.toKey)}`);
+        lines.push(`  - ${getSkillDisplayName(cat, e.skillId, lang)}: ${getLevelDisplay(e.fromKey, lang)} → ${getLevelDisplay(e.toKey, lang)}`);
     }
 
     // Resources (non-zero only)
@@ -721,7 +727,7 @@ function buildCopySummary(entries, buffs, lang) {
     const cat = entries[0].cat;
     lines.push(lc.results.skillsList);
     for (const e of entries) {
-        lines.push(`  - ${getSkillDisplayName(cat, e.skillId, lang)}: ${lc.levelDisplay.replace('{key}', e.fromKey)} → ${lc.levelDisplay.replace('{key}', e.toKey)}`);
+        lines.push(`  - ${getSkillDisplayName(cat, e.skillId, lang)}: ${getLevelDisplay(e.fromKey, lang)} → ${getLevelDisplay(e.toKey, lang)}`);
     }
 
     const nonZero = Object.entries(totalRes).filter(([, v]) => v > 0);

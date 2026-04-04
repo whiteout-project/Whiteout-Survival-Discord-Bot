@@ -4,32 +4,44 @@ const fs = require('fs');
 const os = require('os');
 const { spawn, execSync } = require('child_process');
 
-// Auto-restart with optimization flags if not present
-if (!global.gc) {
-    // Detect --dev flag and propagate via environment variable
+// ============================================================
+// PARENT / CHILD WRAPPER
+// When running as the parent (no STARTER_CHILD env), spawn self
+// as a child process. This allows full restarts & self-updates
+// without killing the parent — the parent just respawns the child.
+// ============================================================
+if (!process.env.STARTER_CHILD) {
     const isDevMode = process.argv.includes('--dev');
+    const userArgs = process.argv.slice(2); // args after "starter.js"
+
+    // Ensure --expose-gc and --max-old-space-size are present
+    const nodeFlags = [...process.execArgv];
+    if (!nodeFlags.some(f => f.includes('expose-gc'))) nodeFlags.push('--expose-gc');
+    if (!nodeFlags.some(f => f.includes('max-old-space-size'))) nodeFlags.push('--max-old-space-size=256');
+
     function spawnChild() {
-        const child = spawn('node', [
-            '--expose-gc',
-            '--max-old-space-size=256',
-            ...process.argv.slice(1)
-        ], {
+        const child = spawn(process.execPath, [...nodeFlags, __filename, ...userArgs], {
             stdio: 'inherit',
             cwd: process.cwd(),
-            env: { ...process.env, FULL_SELF_UPDATE: '1', ...(isDevMode ? { WOSLAND_DEV_MODE: '1' } : {}) }
+            env: {
+                ...process.env,
+                STARTER_CHILD: '1',
+                FULL_SELF_UPDATE: '1',
+                ...(isDevMode ? { WOSLAND_DEV_MODE: '1' } : {})
+            }
         });
 
         child.on('exit', (code) => {
             if (code === 42) {
-                console.log('[starter] Self-update detected — restarting with updated starter.js...');
+                console.log('[LAUNCHER] Respawning with updated code...\n');
                 spawnChild();
             } else {
-                process.exit(code);
+                process.exit(code ?? 1);
             }
         });
     }
     spawnChild();
-    return; // Exit parent process
+    return;
 }
 
 // ============================================================
@@ -106,8 +118,8 @@ async function checkDependencies() {
     const missing = [];
 
     for (const depName of Object.keys(deps)) {
-        const depPath = path.join(nodeModulesDir, depName);
-        if (!fs.existsSync(depPath)) {
+        const depPkgJson = path.join(nodeModulesDir, depName, 'package.json');
+        if (!fs.existsSync(depPkgJson)) {
             missing.push(depName);
         }
     }
@@ -123,12 +135,28 @@ async function checkDependencies() {
         console.log('[PREFLIGHT] Packages present but native binaries missing. Running npm rebuild...');
     }
 
-    if (needsInstall || needsRebuild) {
-        const ok = await robustNpmInstall(__dirname, '[PREFLIGHT]');
+    if (needsInstall) {
+        const ok = await robustNpmInstall(__dirname, '[PREFLIGHT]', { preferCleanInstall: true });
         if (!ok) {
             console.error('[PREFLIGHT] Failed to install dependencies.');
             console.error('[PREFLIGHT] Please run "npm install --omit=optional" manually.');
             return false;
+        }
+    } else if (needsRebuild) {
+        try {
+            const heapMb = npmHeapMb();
+            const rebuildEnv = { ...process.env, NODE_OPTIONS: `--max-old-space-size=${heapMb}` };
+            await spawnAsync('npm', ['rebuild', 'better-sqlite3'], { cwd: __dirname, stdio: 'inherit', env: rebuildEnv });
+            console.log('[PREFLIGHT] Native binaries rebuilt successfully.\n');
+        } catch (rebuildError) {
+            console.warn(`[PREFLIGHT] Targeted rebuild failed: ${rebuildError.message}`);
+            console.log('[PREFLIGHT] Falling back to full npm install...');
+            const ok = await robustNpmInstall(__dirname, '[PREFLIGHT]', { preferCleanInstall: true });
+            if (!ok) {
+                console.error('[PREFLIGHT] Failed to install dependencies.');
+                console.error('[PREFLIGHT] Please run "npm install --omit=optional" manually.');
+                return false;
+            }
         }
     }
 
@@ -236,7 +264,8 @@ async function checkForUpdates() {
             latest: latestVersion,
             current: currentVersion,
             url: data.html_url || `https://github.com/${GITHUB_REPO}/releases`,
-            body: data.body || ''
+            body: data.body || '',
+            assets: (data.assets || []).map(a => ({ name: a.name, url: a.browser_download_url }))
         };
     } catch {
         return null;
@@ -282,10 +311,10 @@ function getFileHash(filePath) {
  * @param {string} srcDir - Source directory
  * @param {string} destDir - Destination directory
  * @param {Set<string>} protectedPaths - Paths to skip (relative to destDir)
- * @returns {{updated: number, skipped: number, added: number}}
+ * @returns {{updated: number, skipped: number, added: number, failed: number, starterChanged: boolean}}
  */
 function copyUpdatedFiles(srcDir, destDir, protectedPaths = new Set()) {
-    let stats = { updated: 0, skipped: 0, added: 0, starterChanged: false };
+    let stats = { updated: 0, skipped: 0, added: 0, failed: 0, starterChanged: false };
 
     if (!fs.existsSync(srcDir)) return stats;
 
@@ -320,6 +349,7 @@ function copyUpdatedFiles(srcDir, destDir, protectedPaths = new Set()) {
             stats.updated += subStats.updated;
             stats.skipped += subStats.skipped;
             stats.added += subStats.added;
+            stats.failed += subStats.failed;
             if (subStats.starterChanged) stats.starterChanged = true;
 
         } else if (entry.isFile()) {
@@ -328,16 +358,26 @@ function copyUpdatedFiles(srcDir, destDir, protectedPaths = new Set()) {
 
             if (!destHash) {
                 // New file
-                fs.copyFileSync(srcPath, destPath);
-                console.log(`[UPDATE] Added: ${relativePath}`);
-                stats.added++;
-                if (entry.name === 'starter.js') stats.starterChanged = true;
+                try {
+                    fs.copyFileSync(srcPath, destPath);
+                    console.log(`[UPDATE] Added: ${relativePath}`);
+                    stats.added++;
+                    if (entry.name === 'starter.js') stats.starterChanged = true;
+                } catch (err) {
+                    console.error(`[UPDATE] Failed to add ${relativePath}: ${err.message}`);
+                    stats.failed++;
+                }
             } else if (srcHash !== destHash) {
                 // File changed, update it
-                fs.copyFileSync(srcPath, destPath);
-                console.log(`[UPDATE] Updated: ${relativePath}`);
-                stats.updated++;
-                if (entry.name === 'starter.js') stats.starterChanged = true;
+                try {
+                    fs.copyFileSync(srcPath, destPath);
+                    console.log(`[UPDATE] Updated: ${relativePath}`);
+                    stats.updated++;
+                    if (entry.name === 'starter.js') stats.starterChanged = true;
+                } catch (err) {
+                    console.error(`[UPDATE] Failed to update ${relativePath}: ${err.message}`);
+                    stats.failed++;
+                }
             } else {
                 // File unchanged, skip
                 stats.skipped++;
@@ -346,6 +386,136 @@ function copyUpdatedFiles(srcDir, destDir, protectedPaths = new Set()) {
     }
 
     return stats;
+}
+
+// ============================================================
+// ZIP DOWNLOAD & EXTRACTION HELPERS
+// ============================================================
+
+const ZIP_MAGIC_BYTES = Buffer.from([0x50, 0x4B, 0x03, 0x04]);
+const MIN_ZIP_SIZE = 1024;
+
+/**
+ * Verifies that a file is a valid ZIP archive by checking magic bytes and minimum size.
+ * @param {string} zipPath - Path to the ZIP file
+ * @throws {Error} If the file is not a valid ZIP
+ */
+function verifyZipIntegrity(zipPath) {
+    const stats = fs.statSync(zipPath);
+    if (stats.size < MIN_ZIP_SIZE) {
+        throw new Error(`Downloaded ZIP is too small (${stats.size} bytes) — likely corrupted or empty`);
+    }
+    const header = Buffer.alloc(4);
+    const fd = fs.openSync(zipPath, 'r');
+    try {
+        fs.readSync(fd, header, 0, 4, 0);
+    } finally {
+        fs.closeSync(fd);
+    }
+    if (!header.subarray(0, 4).equals(ZIP_MAGIC_BYTES)) {
+        throw new Error('Downloaded file is not a valid ZIP archive');
+    }
+}
+
+/**
+ * Downloads a file from a URL, following up to maxRedirects HTTP redirects.
+ * @param {string} url - URL to download
+ * @param {string} destPath - Destination file path
+ * @param {number} [maxRedirects=5] - Maximum number of redirects to follow
+ * @returns {Promise<void>}
+ */
+function downloadFile(url, destPath, maxRedirects = 5) {
+    const https = require('https');
+    return new Promise((resolve, reject) => {
+        function follow(currentUrl, redirectsLeft) {
+            https.get(currentUrl, (res) => {
+                if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+                    if (redirectsLeft <= 0) return reject(new Error('Too many redirects'));
+                    return follow(res.headers.location, redirectsLeft - 1);
+                }
+                if (res.statusCode !== 200) {
+                    return reject(new Error(`Download failed with HTTP ${res.statusCode}`));
+                }
+                const file = fs.createWriteStream(destPath);
+                res.pipe(file);
+                file.on('finish', () => { file.close(); resolve(); });
+                file.on('error', (err) => {
+                    file.close();
+                    try { fs.unlinkSync(destPath); } catch { /* ignore */ }
+                    reject(err);
+                });
+            }).on('error', (err) => {
+                try { fs.unlinkSync(destPath); } catch { /* ignore */ }
+                reject(err);
+            });
+        }
+        follow(url, maxRedirects);
+    });
+}
+
+/**
+ * Extracts a ZIP file using the platform-appropriate method.
+ * @param {string} zipPath - Path to the ZIP file
+ * @param {string} extractDir - Directory to extract into
+ * @param {string} [stdio='pipe'] - stdio option for the extraction subprocess
+ */
+function extractZip(zipPath, extractDir, stdio = 'pipe') {
+    if (!fs.existsSync(extractDir)) {
+        fs.mkdirSync(extractDir, { recursive: true });
+    }
+    const platform = os.platform();
+    try {
+        if (platform === 'win32') {
+            execSync(`powershell -Command "Expand-Archive -Path '${zipPath}' -DestinationPath '${extractDir}' -Force"`, {
+                cwd: __dirname,
+                stdio
+            });
+        } else if (platform === 'darwin' || platform === 'linux') {
+            execSync(`unzip -q "${zipPath}" -d "${extractDir}"`, {
+                cwd: __dirname,
+                stdio
+            });
+        } else {
+            throw new Error(`Unsupported platform: ${platform}`);
+        }
+    } catch (error) {
+        if (error.message.includes('unzip') || error.message.includes('not found')) {
+            throw new Error(`ZIP extraction failed. Please install 'unzip' command:\n  - Ubuntu/Debian: sudo apt-get install unzip\n  - macOS: brew install unzip (usually pre-installed)\n  - Or manually extract the repository from: https://github.com/${GITHUB_REPO}`);
+        }
+        throw new Error(`Failed to extract ZIP: ${error.message}`);
+    }
+}
+
+/**
+ * Finds the root directory inside an extracted GitHub ZIP archive.
+ * GitHub creates a single subfolder named "<repo>-<branch>".
+ * @param {string} extractDir - Directory where the ZIP was extracted
+ * @returns {string} Path to the extracted root directory
+ */
+function getExtractedRoot(extractDir) {
+    const contents = fs.readdirSync(extractDir);
+    if (contents.length === 0) {
+        throw new Error('Extracted archive is empty');
+    }
+    return path.join(extractDir, contents[0]);
+}
+
+/**
+ * Cleans up temporary ZIP and extraction directory files.
+ * @param {string[]} paths - Paths to clean up
+ */
+function cleanupTempFiles(...paths) {
+    for (const filePath of paths) {
+        try {
+            if (!fs.existsSync(filePath)) continue;
+            const stat = fs.statSync(filePath);
+            if (stat.isDirectory()) {
+                fs.rmSync(filePath, { recursive: true, force: true });
+            } else {
+                fs.unlinkSync(filePath);
+            }
+        } catch { /* ignore cleanup errors */ }
+    }
 }
 
 /**
@@ -365,69 +535,15 @@ async function applyUpdate() {
 
         console.log('\n[UPDATE] Downloading latest version from GitHub...');
 
-        // Download ZIP file
         const zipUrl = `https://github.com/${GITHUB_REPO}/archive/refs/heads/main.zip`;
-        await new Promise((resolve, reject) => {
-            const file = fs.createWriteStream(updateZipPath);
-            https.get(zipUrl, (res) => {
-                if (res.statusCode === 302 || res.statusCode === 301) {
-                    // Follow redirect
-                    https.get(res.headers.location, (redirectRes) => {
-                        redirectRes.pipe(file);
-                        file.on('finish', () => {
-                            file.close();
-                            console.log('[UPDATE] Download complete.');
-                            resolve();
-                        });
-                    }).on('error', reject);
-                } else {
-                    res.pipe(file);
-                    file.on('finish', () => {
-                        file.close();
-                        console.log('[UPDATE] Download complete.');
-                        resolve();
-                    });
-                }
-            }).on('error', (err) => {
-                if (fs.existsSync(updateZipPath)) fs.unlinkSync(updateZipPath);
-                reject(err);
-            });
-        });
+        await downloadFile(zipUrl, updateZipPath);
+        console.log('[UPDATE] Download complete.');
 
+        verifyZipIntegrity(updateZipPath);
         console.log('[UPDATE] Extracting update...');
+        extractZip(updateZipPath, updateExtractDir);
 
-        // Create extraction directory
-        if (!fs.existsSync(updateExtractDir)) {
-            fs.mkdirSync(updateExtractDir, { recursive: true });
-        }
-
-        // Extract using OS-appropriate method
-        const platform = os.platform();
-        try {
-            if (platform === 'win32') {
-                execSync(`powershell -Command "Expand-Archive -Path '${updateZipPath}' -DestinationPath '${updateExtractDir}' -Force"`, {
-                    cwd: __dirname,
-                    stdio: 'pipe'
-                });
-            } else if (platform === 'darwin' || platform === 'linux') {
-                execSync(`unzip -q "${updateZipPath}" -d "${updateExtractDir}"`, {
-                    cwd: __dirname,
-                    stdio: 'pipe'
-                });
-            } else {
-                throw new Error(`Unsupported platform: ${platform}`);
-            }
-        } catch (extractError) {
-            throw new Error(`Failed to extract update: ${extractError.message}`);
-        }
-
-        // Find extracted root directory (GitHub creates a subfolder)
-        const extractedContents = fs.readdirSync(updateExtractDir);
-        if (extractedContents.length === 0) {
-            throw new Error('Update archive is empty');
-        }
-
-        const extractedRoot = path.join(updateExtractDir, extractedContents[0]);
+        const extractedRoot = getExtractedRoot(updateExtractDir);
 
         console.log('[UPDATE] Comparing and updating files...');
 
@@ -441,7 +557,8 @@ async function applyUpdate() {
             'node_modules',
             '.git',
             'update.zip',
-            'temp_update'
+            'temp_update',
+            'plugins'
         ]);
 
         // Copy updated files selectively
@@ -450,12 +567,15 @@ async function applyUpdate() {
         console.log(`\n[UPDATE] Files updated: ${stats.updated}`);
         console.log(`[UPDATE] Files added: ${stats.added}`);
         console.log(`[UPDATE] Files skipped: ${stats.skipped}`);
+        if (stats.failed > 0) {
+            console.log(`[UPDATE] Files failed: ${stats.failed} (these files may need manual update)`);
+        }
 
         // Check if package.json changed and reinstall dependencies if needed
         const pkgAfter = fs.existsSync(pkgPath) ? fs.readFileSync(pkgPath, 'utf8') : '';
         if (pkgBefore !== pkgAfter) {
             console.log('\n[UPDATE] Dependencies changed - installing new packages...');
-            const ok = await robustNpmInstall(__dirname, '[UPDATE]');
+            const ok = await robustNpmInstall(__dirname, '[UPDATE]', { preferCleanInstall: true });
             if (!ok) {
                 console.warn('[UPDATE] Some packages may not have installed correctly. Run "npm install --omit=optional" if issues persist.');
             }
@@ -499,39 +619,30 @@ async function applyUpdate() {
 
         // Cleanup
         console.log('\n[UPDATE] Cleaning up temporary files...');
-        if (fs.existsSync(updateZipPath)) fs.unlinkSync(updateZipPath);
-        if (fs.existsSync(updateExtractDir)) {
-            fs.rmSync(updateExtractDir, { recursive: true, force: true });
-        }
+        cleanupTempFiles(updateZipPath, updateExtractDir);
 
         // If starter.js itself was updated and parent supports self-update loop, exit with code 42 to trigger re-spawn
         if (stats.starterChanged) {
             if (process.env.FULL_SELF_UPDATE === '1') {
                 console.log('\n[UPDATE] starter.js was updated — restarting process to apply entry-point changes...');
                 setTimeout(() => process.exit(42), 500);
+                const failMsg = stats.failed > 0 ? ` ${stats.failed} files failed to update.` : '';
                 return {
                     success: true,
-                    message: `Update applied successfully! ${stats.updated} files updated, ${stats.added} files added. starter.js changed — restarting automatically...`
+                    message: `Update applied successfully! ${stats.updated} files updated, ${stats.added} files added.${failMsg} starter.js changed — restarting automatically...`
                 };
             } else {
                 console.log('\n[UPDATE] starter.js was updated — a full manual restart is required to apply entry-point changes.');
             }
         }
 
+        const failMsg = stats.failed > 0 ? ` ${stats.failed} files failed to update.` : '';
         return {
-            success: true,
-            message: `Update applied successfully! ${stats.updated} files updated, ${stats.added} files added. Restart the bot to apply changes.`
+            success: stats.failed === 0,
+            message: `Update applied! ${stats.updated} files updated, ${stats.added} files added.${failMsg} Restart the bot to apply changes.`
         };
     } catch (error) {
-        // Cleanup on error
-        try {
-            if (fs.existsSync(updateZipPath)) fs.unlinkSync(updateZipPath);
-            if (fs.existsSync(updateExtractDir)) {
-                fs.rmSync(updateExtractDir, { recursive: true, force: true });
-            }
-        } catch (cleanupError) {
-            // Ignore cleanup errors
-        }
+        cleanupTempFiles(updateZipPath, updateExtractDir);
 
         return { success: false, message: `Update failed: ${error.message}` };
     }
@@ -612,6 +723,20 @@ function sleep(ms) {
 }
 
 /**
+ * Resolves the cgroup v2 directory path for this process.
+ * @returns {string|null} The cgroup path, or null if not on cgroup v2
+ */
+function getCgroupV2Path() {
+    try {
+        const cgroupText = fs.readFileSync('/proc/self/cgroup', 'utf8');
+        const v2Match = cgroupText.match(/^0::(.*)$/m);
+        return v2Match ? `/sys/fs/cgroup${v2Match[1].trim()}` : '/sys/fs/cgroup';
+    } catch {
+        return null;
+    }
+}
+
+/**
  * Returns the container's memory limit in MB.
  * On Linux, tries to read the cgroup limit (which reflects the actual
  * container cap) before falling back to os.totalmem() (which reports
@@ -619,21 +744,18 @@ function sleep(ms) {
  */
 function getEffectiveTotalMemMb() {
     if (process.platform === 'linux') {
-        try {
-            const cgroupText = fs.readFileSync('/proc/self/cgroup', 'utf8');
-            const v2Match = cgroupText.match(/^0::(.*)$/m);
-            const cgroupBase = '/sys/fs/cgroup';
-            let searchPath = v2Match ? `${cgroupBase}${v2Match[1].trim()}` : cgroupBase;
-            while (searchPath.length >= cgroupBase.length) {
-                try {
-                    const raw = fs.readFileSync(`${searchPath}/memory.max`, 'utf8').trim();
-                    if (raw !== 'max') return Math.floor(Number(raw) / 1024 / 1024);
-                } catch { /* not at this level, try parent */ }
-                const parent = searchPath.substring(0, searchPath.lastIndexOf('/'));
-                if (parent === searchPath) break;
-                searchPath = parent;
-            }
-        } catch { /* /proc/self/cgroup not readable */ }
+        // cgroup v2: walk up from the process cgroup to find memory.max
+        let searchPath = getCgroupV2Path();
+        const cgroupBase = '/sys/fs/cgroup';
+        while (searchPath && searchPath.length >= cgroupBase.length) {
+            try {
+                const raw = fs.readFileSync(`${searchPath}/memory.max`, 'utf8').trim();
+                if (raw !== 'max') return Math.floor(Number(raw) / 1024 / 1024);
+            } catch { /* not at this level, try parent */ }
+            const parent = searchPath.substring(0, searchPath.lastIndexOf('/'));
+            if (parent === searchPath) break;
+            searchPath = parent;
+        }
 
         // cgroup v1
         try {
@@ -653,20 +775,19 @@ function getEffectiveTotalMemMb() {
 function getEffectiveFreeMemMb() {
     if (process.platform === 'linux') {
         const totalMb = getEffectiveTotalMemMb();
-        // cgroup v2: try current-cgroup path first, then root
-        try {
-            const cgroupText = fs.readFileSync('/proc/self/cgroup', 'utf8');
-            const v2Match = cgroupText.match(/^0::(.*)$/m);
-            const searchPath = v2Match
-                ? `/sys/fs/cgroup${v2Match[1].trim()}`
-                : '/sys/fs/cgroup';
-            const used = Math.floor(Number(fs.readFileSync(`${searchPath}/memory.current`, 'utf8').trim()) / 1024 / 1024);
-            return Math.max(totalMb - used, 0);
-        } catch { /* not mounted or process cgroup unreadable */ }
-        try {
-            const used = Math.floor(Number(fs.readFileSync('/sys/fs/cgroup/memory.current', 'utf8').trim()) / 1024 / 1024);
-            return Math.max(totalMb - used, 0);
-        } catch { /* not mounted */ }
+        // cgroup v2: read memory.current from process cgroup path
+        const cgroupPath = getCgroupV2Path();
+        if (cgroupPath) {
+            try {
+                const used = Math.floor(Number(fs.readFileSync(`${cgroupPath}/memory.current`, 'utf8').trim()) / 1024 / 1024);
+                return Math.max(totalMb - used, 0);
+            } catch { /* not mounted */ }
+            // Fallback: try cgroup root
+            try {
+                const used = Math.floor(Number(fs.readFileSync('/sys/fs/cgroup/memory.current', 'utf8').trim()) / 1024 / 1024);
+                return Math.max(totalMb - used, 0);
+            } catch { /* not mounted */ }
+        }
         // cgroup v1
         try {
             const used = Math.floor(Number(fs.readFileSync('/sys/fs/cgroup/memory/memory.usage_in_bytes', 'utf8').trim()) / 1024 / 1024);
@@ -773,12 +894,14 @@ async function checkDepsInstalled(cwd, env) {
 }
 
 /**
- * Runs npm install with automatic retry.
+ * Runs npm install (or npm ci for clean installs) with automatic retry.
  * @param {string} cwd     - Working directory (where package.json lives)
  * @param {string} context - Log prefix, e.g. '[PREFLIGHT]'
+ * @param {Object} [options]
+ * @param {boolean} [options.preferCleanInstall=false] - Use `npm ci` when package-lock.json exists for deterministic installs
  * @returns {Promise<boolean>}
  */
-async function robustNpmInstall(cwd, context) {
+async function robustNpmInstall(cwd, context, { preferCleanInstall = false } = {}) {
     const MAX_RETRIES = 3;
     const RETRY_DELAY_MS = 5000;
     const heapMb = npmHeapMb();
@@ -802,7 +925,11 @@ async function robustNpmInstall(cwd, context) {
         'npm_config_onnxruntime-node-install-cuda': 'skip',
     };
 
-    const BASE_FLAGS = ['install', '--omit=optional', '--prefer-offline', '--no-audit', '--no-fund'];
+    const hasLockfile = fs.existsSync(path.join(cwd, 'package-lock.json'));
+    const useCleanInstall = preferCleanInstall && hasLockfile;
+    const npmCommand = useCleanInstall ? 'ci' : 'install';
+    const BASE_FLAGS = [npmCommand, '--omit=optional', '--no-audit', '--no-fund'];
+    if (!useCleanInstall) BASE_FLAGS.push('--prefer-offline');
 
     if (isLowMemoryEnvironment()) {
         console.log(`${context} Low-memory machine detected (${totalMb} MB total, ${freeMb} MB free, npm heap: ${heapMb} MB). Install may take multiple attempts...`);
@@ -810,12 +937,12 @@ async function robustNpmInstall(cwd, context) {
 
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
         try {
-            console.log(`${context} Running npm install (attempt ${attempt}/${MAX_RETRIES}, heap: ${heapMb} MB)...`);
+            console.log(`${context} Running npm ${npmCommand} (attempt ${attempt}/${MAX_RETRIES}, heap: ${heapMb} MB)...`);
             await spawnAsync('npm', BASE_FLAGS, { cwd, stdio: 'inherit', env: npmEnv });
             console.log(`${context} Dependencies installed successfully.\n`);
             return true;
         } catch (err) {
-            console.warn(`${context} npm install attempt ${attempt} failed: ${err.message}`);
+            console.warn(`${context} npm ${npmCommand} attempt ${attempt} failed: ${err.message}`);
 
             if (await checkDepsInstalled(cwd, npmEnv)) {
                 console.log(`${context} Install was interrupted but all packages are verified present. Continuing...\n`);
@@ -866,81 +993,19 @@ function isInstallerMode() {
  * @returns {Promise<void>}
  */
 async function downloadAndExtractZip() {
-    const https = require('https');
     const zipUrl = `https://github.com/${GITHUB_REPO}/archive/refs/heads/main.zip`;
     const zipPath = path.join(__dirname, 'repo.zip');
     const extractDir = path.join(__dirname, 'temp_extract');
 
     console.log('[INSTALLER] Downloading repository from GitHub...');
+    await downloadFile(zipUrl, zipPath);
+    console.log('[INSTALLER] Download complete.');
 
-    // Download ZIP file
-    await new Promise((resolve, reject) => {
-        const file = fs.createWriteStream(zipPath);
-        https.get(zipUrl, (res) => {
-            if (res.statusCode === 302 || res.statusCode === 301) {
-                // Follow redirect
-                https.get(res.headers.location, (redirectRes) => {
-                    redirectRes.pipe(file);
-                    file.on('finish', () => {
-                        file.close();
-                        console.log('[INSTALLER] Download complete.');
-                        resolve();
-                    });
-                }).on('error', reject);
-            } else {
-                res.pipe(file);
-                file.on('finish', () => {
-                    file.close();
-                    console.log('[INSTALLER] Download complete.');
-                    resolve();
-                });
-            }
-        }).on('error', (err) => {
-            fs.unlinkSync(zipPath);
-            reject(err);
-        });
-    });
-
+    verifyZipIntegrity(zipPath);
     console.log('[INSTALLER] Extracting files...');
+    extractZip(zipPath, extractDir, 'inherit');
 
-    // Create extraction directory
-    if (!fs.existsSync(extractDir)) {
-        fs.mkdirSync(extractDir, { recursive: true });
-    }
-
-    // Extract using OS-appropriate method
-    const platform = os.platform();
-    try {
-        if (platform === 'win32') {
-            // Windows: Use PowerShell's Expand-Archive
-            execSync(`powershell -Command "Expand-Archive -Path '${zipPath}' -DestinationPath '${extractDir}' -Force"`, {
-                cwd: __dirname,
-                stdio: 'inherit'
-            });
-        } else if (platform === 'darwin' || platform === 'linux') {
-            // macOS and Linux: Use unzip command (pre-installed on most systems)
-            execSync(`unzip -q "${zipPath}" -d "${extractDir}"`, {
-                cwd: __dirname,
-                stdio: 'inherit'
-            });
-        } else {
-            throw new Error(`Unsupported platform: ${platform}`);
-        }
-    } catch (error) {
-        if (error.message.includes('unzip') || error.message.includes('not found')) {
-            throw new Error(`ZIP extraction failed. Please install 'unzip' command:\n  - Ubuntu/Debian: sudo apt-get install unzip\n  - macOS: brew install unzip (usually pre-installed)\n  - Or manually extract the repository from: https://github.com/${GITHUB_REPO}`);
-        }
-        throw new Error(`Failed to extract ZIP: ${error.message}`);
-    }
-
-    // Move files from extracted folder to current directory
-    const extractedContents = fs.readdirSync(extractDir);
-    if (extractedContents.length === 0) {
-        throw new Error('Extracted archive is empty');
-    }
-
-    // GitHub puts files in a subfolder named "<repo>-<branch>"
-    const extractedRoot = path.join(extractDir, extractedContents[0]);
+    const extractedRoot = getExtractedRoot(extractDir);
     const files = fs.readdirSync(extractedRoot);
 
     console.log('[INSTALLER] Moving files to workspace...');
@@ -957,10 +1022,8 @@ async function downloadAndExtractZip() {
         fs.renameSync(srcPath, destPath);
     }
 
-    // Cleanup
     console.log('[INSTALLER] Cleaning up temporary files...');
-    fs.unlinkSync(zipPath);
-    fs.rmSync(extractDir, { recursive: true, force: true });
+    cleanupTempFiles(zipPath, extractDir);
 }
 
 /**
@@ -996,7 +1059,7 @@ async function installRepo() {
 
         console.log('\n[INSTALLER] Repository installed successfully!');
         console.log('\n[INSTALLER] Installing dependencies...\n');
-        const ok = await robustNpmInstall(__dirname, '[INSTALLER]');
+        const ok = await robustNpmInstall(__dirname, '[INSTALLER]', { preferCleanInstall: true });
         if (!ok) {
             console.error('[INSTALLER] Failed to install dependencies.');
             console.error('[INSTALLER] Please run "npm install --omit=optional" manually.');
@@ -1242,82 +1305,32 @@ function hotReloadFile(filePath) {
 /**
  * Reloads all files without restarting the bot
  */
-async function reloadAllFiles() {
-    console.log('️Reloading all files...\n');
-
-    let successCount = 0;
-    let failCount = 0;
-
-    // Get all handler, event, and command paths
-    const handlerPaths = botModule.getAllHandlerPaths ? botModule.getAllHandlerPaths() : [];
-    const eventPaths = botModule.getAllEventPaths ? botModule.getAllEventPaths() : [];
-    const commandPaths = botModule.getAllCommandPaths ? botModule.getAllCommandPaths() : [];
-
-    // Reload handlers
-    for (const handlerPath of handlerPaths) {
+/**
+ * Re-registers an array of module paths with a given registration function.
+ * @param {string[]} modulePaths  - Absolute paths to re-register
+ * @param {Function} registerFn   - e.g. botModule.registerHandler
+ * @param {string}   label        - Human-readable type for error messages
+ * @returns {{ success: number, fail: number }}
+ */
+function reregisterModules(modulePaths, registerFn, label) {
+    let success = 0;
+    let fail = 0;
+    for (const modulePath of modulePaths) {
         try {
-            botModule.unregisterHandler(handlerPath);
-            clearCache(handlerPath);
-            botModule.registerHandler(handlerPath);
-            successCount++;
-        } catch (error) {
-            console.error(`Failed to reload handler: ${path.basename(handlerPath)}`);
-            failCount++;
+            registerFn(modulePath);
+            success++;
+        } catch {
+            console.error(`Failed to reload ${label}: ${path.basename(modulePath)}`);
+            fail++;
         }
     }
+    return { success, fail };
+}
 
-    // Reload events
-    for (const eventPath of eventPaths) {
-        try {
-            botModule.unregisterEvent(eventPath);
-            clearCache(eventPath);
-            botModule.registerEvent(eventPath);
-            successCount++;
-        } catch (error) {
-            console.error(`Failed to reload event: ${path.basename(eventPath)}`);
-            failCount++;
-        }
-    }
-
-    // Reload commands
-    for (const commandPath of commandPaths) {
-        try {
-            botModule.unregisterCommand(commandPath);
-            clearCache(commandPath);
-            botModule.registerCommand(commandPath);
-            successCount++;
-        } catch (error) {
-            console.error(`Failed to reload command: ${path.basename(commandPath)}`);
-            failCount++;
-        }
-    }
-
-    // Reload i18n files BEFORE clearing cache
-    try {
-        const i18nPath = path.join(SRC_DIR, 'i18n', 'index.js');
-        const i18nModule = require(i18nPath);
-        if (typeof i18nModule.reload === 'function') {
-            i18nModule.reload();
-            successCount++;
-        }
-    } catch (error) {
-        console.error('Failed to reload i18n files:', error.message);
-        failCount++;
-    }
-
-    // Cleanup old notification scheduler timeouts BEFORE cache clear
-    // (cache clear creates a new singleton, orphaning old timeouts)
-    try {
-        const oldScheduler = require(path.join(SRC_DIR, 'functions', 'Notification', 'notificationScheduler'));
-        if (oldScheduler.notificationScheduler) oldScheduler.notificationScheduler.cleanup();
-    } catch { /* ignore — scheduler may not be loaded yet */ }
-
-    // Clear cache for all other files in src
-    for (const fullPath of fileMap.values()) {
-        clearCache(fullPath);
-    }
-
-    // Re-initialize notification scheduler after reload
+/**
+ * Re-initializes schedulers after a hot-reload clears cached modules.
+ */
+async function reinitializeSchedulers() {
     try {
         if (botClient) {
             const { initializeNotificationScheduler } = require(path.join(SRC_DIR, 'functions', 'Notification', 'notificationScheduler'));
@@ -1326,17 +1339,93 @@ async function reloadAllFiles() {
         }
     } catch (error) {
         console.error('Failed to re-initialize notification scheduler:', error.message);
+    }
 
-        // Re-initialize backup scheduler after reload
-        try {
-            if (botClient) {
-                const { initializeBackupScheduler } = require(path.join(SRC_DIR, 'functions', 'settings', 'DBManager', 'backupScheduler'));
-                initializeBackupScheduler(botClient);
-                console.log('Backup scheduler re-initialized');
-            }
-        } catch (error) {
-            console.error('Failed to re-initialize backup scheduler:', error.message);
+    try {
+        if (botClient) {
+            const { initializeBackupScheduler } = require(path.join(SRC_DIR, 'functions', 'Settings', 'backup', 'backupScheduler'));
+            initializeBackupScheduler(botClient);
+            console.log('Backup scheduler re-initialized');
         }
+    } catch (error) {
+        console.error('Failed to re-initialize backup scheduler:', error.message);
+    }
+}
+
+/**
+ * Reloads all files without restarting the bot
+ */
+async function reloadAllFiles() {
+    console.log('️Reloading all files...\n');
+
+    let successCount = 0;
+    let failCount = 0;
+
+    // Get all handler, event, and command paths before unregistering
+    const handlerPaths = botModule.getAllHandlerPaths ? botModule.getAllHandlerPaths() : [];
+    const eventPaths = botModule.getAllEventPaths ? botModule.getAllEventPaths() : [];
+    const commandPaths = botModule.getAllCommandPaths ? botModule.getAllCommandPaths() : [];
+
+    // Step 1: Cleanup schedulers before cache clear
+    cleanupAllSchedulers();
+
+    // Step 2: Unregister everything (uses old cached modules)
+    for (const hp of handlerPaths) {
+        try { botModule.unregisterHandler(hp); } catch { /* ignore */ }
+    }
+    for (const ep of eventPaths) {
+        try { botModule.unregisterEvent(ep); } catch { /* ignore */ }
+    }
+    for (const cp of commandPaths) {
+        try { botModule.unregisterCommand(cp); } catch { /* ignore */ }
+    }
+
+    // Step 3: Clear ALL caches — dependencies MUST be cleared before re-registering
+    // so that handlers/events/commands get fresh versions of shared modules
+    for (const fullPath of fileMap.values()) {
+        clearCache(fullPath);
+    }
+    for (const hp of handlerPaths) { clearCache(hp); }
+    for (const ep of eventPaths) { clearCache(ep); }
+    for (const cp of commandPaths) { clearCache(cp); }
+
+    // Step 4: Reload i18n
+    try {
+        const i18nPath = path.join(SRC_DIR, 'i18n', 'index.js');
+        clearCache(i18nPath);
+        const i18nModule = require(i18nPath);
+        if (typeof i18nModule.reload === 'function') {
+            i18nModule.reload();
+        }
+        successCount++;
+    } catch (error) {
+        console.error('Failed to reload i18n files:', error.message);
+        failCount++;
+    }
+
+    // Step 5: Re-register everything (fresh requires with fresh dependencies)
+    for (const { success, fail } of [
+        reregisterModules(handlerPaths, botModule.registerHandler, 'handler'),
+        reregisterModules(eventPaths, botModule.registerEvent, 'event'),
+        reregisterModules(commandPaths, botModule.registerCommand, 'command'),
+    ]) {
+        successCount += success;
+        failCount += fail;
+    }
+
+    // Step 6: Re-initialize schedulers with fresh modules
+    await reinitializeSchedulers();
+
+    // Step 7: Rebuild plugin map (cache was cleared, loadedPlugins Map is empty)
+    try {
+        const pluginsLoader = require(path.join(SRC_DIR, 'functions', 'Plugin', 'pluginsLoader'));
+        pluginsLoader.rebuildPluginMap();
+        const pluginCount = pluginsLoader.getPluginCount();
+        if (pluginCount > 0) {
+            console.log(`Plugin map rebuilt: ${pluginCount} plugin(s)`);
+        }
+    } catch (error) {
+        console.error('Failed to rebuild plugin map:', error.message);
     }
 
     console.log(`\nReload complete: ${successCount} files reloaded, ${failCount} failed\n`);
@@ -1366,24 +1455,67 @@ function startBot() {
 }
 
 /**
+ * Persists a Discord bot token to src/.env and updates process.env.
+ * @param {string} token - The Discord bot token to save
+ */
+function saveTokenToEnv(token) {
+    const envPath = path.join(__dirname, 'src', '.env');
+    let content = '';
+    if (fs.existsSync(envPath)) content = fs.readFileSync(envPath, 'utf8');
+    const lines = content.split(/\r?\n/);
+    let found = false;
+    for (let i = 0; i < lines.length; i++) {
+        if (/^\s*TOKEN\s*=/.test(lines[i])) {
+            lines[i] = `TOKEN=${token}`;
+            found = true;
+            break;
+        }
+    }
+    if (!found) lines.unshift(`TOKEN=${token}`);
+    fs.writeFileSync(envPath, lines.join('\n'), 'utf8');
+    process.env.TOKEN = token;
+}
+
+/**
+ * Stops all background schedulers safely. Called during restart, reload,
+ * and shutdown to prevent orphaned timers and cron jobs.
+ */
+function cleanupAllSchedulers() {
+    try {
+        const { notificationScheduler } = require('./src/functions/Notification/notificationScheduler');
+        notificationScheduler.cleanup();
+    } catch { /* not loaded */ }
+
+    try {
+        const { stopAutoCleanScheduler } = require('./src/functions/Notification/autoClean');
+        stopAutoCleanScheduler();
+    } catch { /* not loaded */ }
+
+    try {
+        const { autoCleanScheduler } = require('./src/functions/Players/idChannelAutoClean');
+        autoCleanScheduler.cleanup();
+    } catch { /* not loaded */ }
+
+    try {
+        const { stopBackupScheduler } = require('./src/functions/Settings/backup/backupScheduler');
+        stopBackupScheduler();
+    } catch { /* not loaded */ }
+
+    try {
+        const { stopAutoUpdateScheduler } = require('./src/functions/Settings/autoUpdate');
+        stopAutoUpdateScheduler();
+    } catch { /* not loaded */ }
+}
+
+/**
  * Full restart - destroys client, clears ALL cache, and restarts
  * This fixes issues with cached function references
  */
 async function restartBot() {
     try {
-        console.log('Restarting bot (full cache clear)...\n');
+        console.log('Restarting bot...\n');
 
-        // Cancel any pending notification timeouts before destroying the client.
-        try {
-            const { notificationScheduler } = require('./src/functions/Notification/notificationScheduler');
-            notificationScheduler.cleanup();
-        } catch { /* ignore — scheduler may not be loaded yet */ }
-
-        // Cancel any pending auto-clean intervals before destroying the client.
-        try {
-            const { autoCleanScheduler } = require('./src/functions/Players/idChannelAutoClean');
-            autoCleanScheduler.cleanup();
-        } catch { /* ignore — scheduler may not be loaded yet */ }
+        cleanupAllSchedulers();
 
         // Destroy the current client
         if (botClient) {
@@ -1393,23 +1525,23 @@ async function restartBot() {
             botModule = null;
         }
 
-        // Clear ALL cached modules (not just src directory)
+        // If running under the parent wrapper, exit with code 42 for a full respawn.
+        // This ensures starter.js changes are picked up from disk.
+        if (process.env.FULL_SELF_UPDATE === '1') {
+            process.exit(42);
+        }
+
+        // Fallback: in-process restart (direct execution without parent wrapper)
         const cacheKeys = Object.keys(require.cache);
         for (const key of cacheKeys) {
-            // Don't clear starter.js itself or node_modules
-            if (!key.includes('node_modules') && key !== __filename) {
+            if (!key.includes('node_modules')) {
                 delete require.cache[key];
             }
         }
 
         console.log('Cleared all module cache');
-
-        // Wait for cleanup
         await new Promise(resolve => setTimeout(resolve, 1500));
-
-        // Restart the bot
         startBot();
-
         console.log('Restart complete\n');
     } catch (error) {
         console.error('Failed to restart:', error);
@@ -1504,6 +1636,39 @@ function showUsage() {
 }
 
 /**
+ * Performs a graceful shutdown: stops all schedulers, destroys the Discord
+ * client, flushes the SQLite WAL, and closes the database connection.
+ * @param {number} [exitCode=0] - Process exit code
+ */
+async function gracefulShutdown(exitCode = 0) {
+    console.log('\nPerforming graceful shutdown...');
+
+    cleanupAllSchedulers();
+
+    // 5. Destroy Discord client
+    if (botClient) {
+        try {
+            await botClient.destroy();
+        } catch { /* ignore — client may already be destroyed */ }
+        botClient = null;
+    }
+
+    // 6. Flush WAL to main database file and close the connection.
+    //    This prevents leftover .db-wal / .db-shm files and avoids
+    //    potential corruption on unclean container shutdowns.
+    try {
+        const { db } = require('./src/functions/utility/database');
+        if (db.open) {
+            db.pragma('wal_checkpoint(TRUNCATE)');
+            db.close();
+            console.log('[SHUTDOWN] Database closed cleanly (WAL checkpointed).');
+        }
+    } catch { /* database module not loaded or already closed */ }
+
+    process.exit(exitCode);
+}
+
+/**
  * Sets up the command interface with tab completion
  */
 function setupCommandInterface() {
@@ -1589,23 +1754,8 @@ function setupCommandInterface() {
                         rl.prompt();
                         return;
                     }
-                    // Persist token to src/.env
                     try {
-                        const envPath = path.join(__dirname, 'src', '.env');
-                        let content = '';
-                        if (fs.existsSync(envPath)) content = fs.readFileSync(envPath, 'utf8');
-                        const lines = content.split(/\r?\n/);
-                        let found = false;
-                        for (let i = 0; i < lines.length; i++) {
-                            if (/^\s*TOKEN\s*=/.test(lines[i])) {
-                                lines[i] = `TOKEN=${token}`;
-                                found = true;
-                                break;
-                            }
-                        }
-                        if (!found) lines.unshift(`TOKEN=${token}`);
-                        fs.writeFileSync(envPath, lines.join('\n'), 'utf8');
-                        process.env.TOKEN = token;
+                        saveTokenToEnv(token);
                         console.log('Token saved. Restarting bot...');
                         await restartBot();
                     } catch (e) {
@@ -1618,21 +1768,7 @@ function setupCommandInterface() {
 
             // We have newToken string - persist and restart
             try {
-                const envPath = path.join(__dirname, 'src', '.env');
-                let content = '';
-                if (fs.existsSync(envPath)) content = fs.readFileSync(envPath, 'utf8');
-                const lines = content.split(/\r?\n/);
-                let found = false;
-                for (let i = 0; i < lines.length; i++) {
-                    if (/^\s*TOKEN\s*=/.test(lines[i])) {
-                        lines[i] = `TOKEN=${newToken}`;
-                        found = true;
-                        break;
-                    }
-                }
-                if (!found) lines.unshift(`TOKEN=${newToken}`);
-                fs.writeFileSync(envPath, lines.join('\n'), 'utf8');
-                process.env.TOKEN = newToken;
+                saveTokenToEnv(newToken);
                 console.log('Token saved. Restarting bot...');
                 await restartBot();
             } catch (e) {
@@ -1730,12 +1866,8 @@ function setupCommandInterface() {
 
         // Handle "exit" command
         if (lower === 'exit' || lower === 'quit') {
-            console.log('\nShutting down...\n');
-            if (botClient) {
-                await botClient.destroy();
-            }
             rl.close();
-            process.exit(0);
+            await gracefulShutdown(0);
         }
 
         // Unknown command
@@ -1745,15 +1877,11 @@ function setupCommandInterface() {
     });
 
     rl.on('SIGINT', async () => {
-        console.log('\nShutting down...\n');
-        if (botClient) {
-            await botClient.destroy();
-        }
         // clear shared prompt before closing
         if (global.promptLine) delete global.promptLine;
         if (global.__sharedReadline) delete global.__sharedReadline;
         rl.close();
-        process.exit(0);
+        await gracefulShutdown(0);
     });
 }
 
@@ -1764,6 +1892,24 @@ process.on('uncaughtException', (error) => {
 
 process.on('unhandledRejection', (reason, promise) => {
     console.error('Unhandled Rejection:', reason);
+});
+
+// Handle SIGTERM (Docker/container orchestrators send this to stop containers)
+process.on('SIGTERM', async () => {
+    await gracefulShutdown(0);
+});
+
+// Last-resort synchronous safety net: if process exits without gracefulShutdown
+// having closed the database, checkpoint and close it here. better-sqlite3 calls
+// are synchronous so this works inside the 'exit' event.
+process.on('exit', () => {
+    try {
+        const { db } = require('./src/functions/utility/database');
+        if (db.open) {
+            db.pragma('wal_checkpoint(TRUNCATE)');
+            db.close();
+        }
+    } catch { /* already closed or not loaded */ }
 });
 
 // Expose functions globally for programmatic use (e.g., settings panel auto-update)

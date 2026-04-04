@@ -98,6 +98,66 @@ async function getAvailableEmojiSlots(client, appId) {
 }
 
 /**
+ * Reconciles emoji IDs stored in the database with the actual Discord application emojis.
+ * Fixes stale IDs caused by copying a database from another bot instance.
+ * @param {import('discord.js').Client} client
+ */
+async function reconcileEmojiPacks(client) {
+	await client.application.fetch();
+	const appId = client.application.id;
+
+	const discordEmojis = await client.rest.get(Routes.applicationEmojis(appId));
+	const emojiList = Array.isArray(discordEmojis?.items)
+		? discordEmojis.items
+		: (Array.isArray(discordEmojis) ? discordEmojis : []);
+
+	if (emojiList.length === 0) return;
+
+	// Build lookup: emoji name → { id, animated }
+	const discordEmojisByName = new Map();
+	for (const emoji of emojiList) {
+		discordEmojisByName.set(emoji.name, {
+			id: emoji.id,
+			animated: emoji.animated || false
+		});
+	}
+
+	const allPacks = customEmojiQueries.getAllCustomEmojiSets();
+
+	for (const pack of allPacks) {
+		let packData;
+		try {
+			packData = JSON.parse(pack.data);
+		} catch {
+			continue;
+		}
+
+		const emojis = packData?.emojis;
+		if (!emojis || typeof emojis !== 'object') continue;
+
+		let hasChanges = false;
+
+		for (const [key, entry] of Object.entries(emojis)) {
+			if (!entry?.name) continue;
+
+			const discordEntry = discordEmojisByName.get(entry.name);
+			if (!discordEntry) continue;
+
+			if (entry.id !== discordEntry.id) {
+				entry.id = discordEntry.id;
+				entry.animated = discordEntry.animated;
+				hasChanges = true;
+			}
+		}
+
+		if (hasChanges) {
+			customEmojiQueries.updateCustomEmojiSetData(JSON.stringify(packData), pack.id);
+			console.log(`[EMOJI] Reconciled stale emoji IDs for pack "${pack.name}"`);
+		}
+	}
+}
+
+/**
  * Initialize default emoji pack if missing
  * @param {import('discord.js').Client} client
  */
@@ -112,62 +172,62 @@ async function initializeEmojiPacks(client) {
 			if (!activePack) {
 				customEmojiQueries.setActiveCustomEmojiSet(woslandPack.id);
 			}
-			return;
-		}
+		} else {
+			// Step 2: wosland doesn't exist, look for local default pack file
+			const defaultPackPath = path.resolve(__dirname, './default_pack.json');
 
-		// Step 2: wosland doesn't exist, look for local default pack file
-		const defaultPackPath = path.resolve(__dirname, './default_pack.json');
+			if (fs.existsSync(defaultPackPath)) {
+				try {
+					// Read pack to get emoji count for progress
+					const rawPackData = JSON.parse(await fs.promises.readFile(defaultPackPath, 'utf8'));
+					const emojiCount = Object.keys(rawPackData).filter(k => k !== 'name').length;
 
-		if (!fs.existsSync(defaultPackPath)) {
-			return;
-		}
+					console.log(`⏳ Please wait, installing ${emojiCount} emojis...`);
 
-		try {
-			// Read pack to get emoji count for progress
-			const rawPackData = JSON.parse(await fs.promises.readFile(defaultPackPath, 'utf8'));
-			const emojiCount = Object.keys(rawPackData).filter(k => k !== 'name').length;
+					// Step 3: Upload emojis to Discord from local file
+					const uploaded = await uploadEmojiPackFromJson(client, defaultPackPath);
 
-			console.log(`⏳ Please wait, installing ${emojiCount} emojis...`);
+					// Step 4: Fetch the newly created emojis from Discord to get accurate IDs
+					await client.application.fetch();
+					const appId = client.application.id;
+					const discordEmojis = await client.rest.get(Routes.applicationEmojis(appId));
+					const emojiList = Array.isArray(discordEmojis?.items) ? discordEmojis.items : (Array.isArray(discordEmojis) ? discordEmojis : []);
 
-			// Step 3: Upload emojis to Discord from local file
-			const uploaded = await uploadEmojiPackFromJson(client, defaultPackPath);
+					// Build emoji data from fetched Discord emojis (packname_emojikey format)
+					const packEmojis = {};
+					const packName = uploaded.name;
 
-			// Step 4: Fetch the newly created emojis from Discord to get accurate IDs
-			await client.application.fetch();
-			const appId = client.application.id;
-			const discordEmojis = await client.rest.get(Routes.applicationEmojis(appId));
-			const emojiList = Array.isArray(discordEmojis?.items) ? discordEmojis.items : (Array.isArray(discordEmojis) ? discordEmojis : []);
-
-			// Build emoji data from fetched Discord emojis (packname_emojikey format)
-			const packEmojis = {};
-			const packName = uploaded.name;
-
-			for (const emoji of emojiList) {
-				// Expected format: packname_emojikey (e.g., "wosland_1000", "wosland_shield")
-				const match = emoji.name.match(/^([^_]+)_(.+)$/);
-				if (match) {
-					const [, prefix, emojiKey] = match;
-					if (prefix === packName) {
-						packEmojis[emojiKey] = {
-							id: emoji.id,
-							name: emoji.name,
-							animated: emoji.animated || false
-						};
+					for (const emoji of emojiList) {
+						// Expected format: packname_emojikey (e.g., "wosland_1000", "wosland_shield")
+						const match = emoji.name.match(/^([^_]+)_(.+)$/);
+						if (match) {
+							const [, prefix, emojiKey] = match;
+							if (prefix === packName) {
+								packEmojis[emojiKey] = {
+									id: emoji.id,
+									name: emoji.name,
+									animated: emoji.animated || false
+								};
+							}
+						}
 					}
+
+					// Step 5: Store in database with fetched IDs
+					const packData = { emojis: packEmojis };
+					customEmojiQueries.addCustomEmojiSet(packName, JSON.stringify(packData), 1); // Set as active
+
+					// Step 6: Delete the local default pack file
+					await fs.promises.unlink(defaultPackPath);
+
+					console.log('Download completed.');
+				} catch (uploadError) {
+					console.error('Failed to install emojis:', uploadError.message);
 				}
 			}
-
-			// Step 5: Store in database with fetched IDs
-			const packData = { emojis: packEmojis };
-			customEmojiQueries.addCustomEmojiSet(packName, JSON.stringify(packData), 1); // Set as active
-
-			// Step 6: Delete the local default pack file
-			await fs.promises.unlink(defaultPackPath);
-
-			console.log('Download completed.');
-		} catch (uploadError) {
-			console.error('Failed to install emojis:', uploadError.message);
 		}
+
+		// Always reconcile emoji IDs with Discord (fixes stale IDs from copied databases)
+		await reconcileEmojiPacks(client);
 	} catch (error) {
 		console.error('Error during emoji initialization:', error.message);
 	}

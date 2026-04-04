@@ -146,3 +146,71 @@ module.exports.reload = function() {
 
 // Expose comparison helper
 module.exports.compareAllLanguages = compareAllLanguages;
+
+// ============================================================
+// PLUGIN LOCALE SUPPORT
+// ============================================================
+
+/**
+ * Merges a plugin's locale strings into the in-memory language objects.
+ * Plugin locale files should contain: { "plugins": { "pluginName": { ...keys } } }
+ * Only the `plugins.<pluginName>` subtree is merged — other top-level keys are ignored for safety.
+ *
+ * @param {string} pluginName - Name of the plugin (used for namespacing and cleanup)
+ * @param {string} localesDir - Absolute path to the plugin's `locales/` directory
+ * @returns {string[]} List of locale codes that were merged (e.g., ['en', 'fr'])
+ */
+module.exports.mergePluginLocales = function (pluginName, localesDir) {
+    const merged = [];
+    const fs = require('fs');
+    const path = require('path');
+
+    if (!fs.existsSync(localesDir)) return merged;
+
+    const files = fs.readdirSync(localesDir).filter(f => f.endsWith('.json'));
+    for (const file of files) {
+        const langCode = path.parse(file).name;
+        try {
+            const data = JSON.parse(fs.readFileSync(path.join(localesDir, file), 'utf8'));
+            const pluginStrings = data?.plugins?.[pluginName];
+            if (!pluginStrings || typeof pluginStrings !== 'object') continue;
+
+            // Ensure the target language object exists (skip unknown locales)
+            const target = languages[langCode];
+            if (!target) continue;
+
+            // Deep-unwrap proxies to get the raw object so we can mutate it
+            const raw = target.__raw || target;
+
+            // Ensure plugins namespace exists
+            if (!raw.plugins) raw.plugins = {};
+            raw.plugins[pluginName] = pluginStrings;
+
+            merged.push(langCode);
+        } catch (error) {
+            console.error(`[i18n] Failed to load plugin locale ${file} for ${pluginName}:`, error.message);
+        }
+    }
+
+    if (merged.length > 0) {
+        console.log(`[i18n] Merged locales for plugin "${pluginName}": ${merged.join(', ')}`);
+    }
+
+    return merged;
+};
+
+/**
+ * Removes a plugin's locale strings from the in-memory language objects.
+ * Called when a plugin is unloaded or removed.
+ *
+ * @param {string} pluginName - Name of the plugin to remove locale data for
+ */
+module.exports.removePluginLocales = function (pluginName) {
+    for (const langObj of Object.values(languages)) {
+        const raw = langObj.__raw || langObj;
+        if (raw.plugins?.[pluginName]) {
+            delete raw.plugins[pluginName];
+        }
+    }
+    console.log(`[i18n] Removed locales for plugin "${pluginName}"`);
+};

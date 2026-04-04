@@ -213,12 +213,12 @@ async function handleLanguageSelection(interaction) {
                         });
                     }
                 } else {
-                    // Language changed from settings — go back to settings
-                    const { createSettingsComponents } = require('./settings');
-                    const settingsContainer = createSettingsComponents(interaction, adminData, freshLang);
+                    // Language changed from settings — go back to preferences category
+                    const { createPreferencesCategory } = require('./settings');
+                    const preferencesContainer = createPreferencesCategory(interaction.user.id, adminData, freshLang);
 
                     await interaction.editReply({
-                        components: settingsContainer,
+                        components: preferencesContainer,
                         flags: MessageFlags.IsComponentsV2
                     });
                 }

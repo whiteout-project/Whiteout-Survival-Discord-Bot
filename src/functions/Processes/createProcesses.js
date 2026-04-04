@@ -173,9 +173,9 @@ async function createProcess(processData) {
 /**
  * Gets process information by ID
  * @param {number} processId - Process ID to retrieve
- * @returns {Promise<Object|null>} Process data or null if not found
+ * @returns {Object|null} Process data or null if not found
  */
-async function getProcessById(processId) {
+function getProcessById(processId) {
     try {
         const process = processQueries.getProcessById(processId);
         if (process) {
@@ -203,9 +203,9 @@ async function getProcessById(processId) {
  * Updates process status
  * @param {number} processId - Process ID to update
  * @param {string} status - New status (queued, active, completed, failed)
- * @returns {Promise<boolean>} Success status
+ * @returns {boolean} Success status
  */
-async function updateProcessStatus(processId, status) {
+function updateProcessStatus(processId, status) {
     try {
         if (status === PROCESS_STATUS.COMPLETED) {
             processQueries.completeProcess(processId);
@@ -236,9 +236,9 @@ async function updateProcessStatus(processId, status) {
  * Updates process progress
  * @param {number} processId - Process ID to update
  * @param {Object} progress - Progress object with pending, done, failed arrays
- * @returns {Promise<boolean>} Success status
+ * @returns {boolean} Success status
  */
-async function updateProcessProgress(processId, progress) {
+function updateProcessProgress(processId, progress) {
     try {
         processQueries.updateProcessProgress(processId, JSON.stringify(progress));
         return true;
@@ -261,9 +261,9 @@ async function updateProcessProgress(processId, progress) {
 /**
  * Deletes a process from the database
  * @param {number} processId - Process ID to delete
- * @returns {Promise<boolean>} Success status
+ * @returns {boolean} Success status
  */
-async function deleteProcess(processId) {
+function deleteProcess(processId) {
     try {
         processQueries.deleteProcess(processId);
         return true;
@@ -285,9 +285,9 @@ async function deleteProcess(processId) {
 /**
  * Gets all processes by status
  * @param {string} status - Status to filter by
- * @returns {Promise<Array>} Array of processes
+ * @returns {Array} Array of processes
  */
-async function getProcessesByStatus(status) {
+function getProcessesByStatus(status) {
     try {
         const processes = processQueries.getProcessesByStatus(status);
         return processes.map(process => {
@@ -315,9 +315,9 @@ async function getProcessesByStatus(status) {
  * Sets process resume timestamp for rate limit handling
  * @param {number} processId - Process ID to update
  * @param {number} resumeAfter - Timestamp when process should resume
- * @returns {Promise<boolean>} Success status
+ * @returns {boolean} Success status
  */
-async function setProcessResumeTime(processId, resumeAfter) {
+function setProcessResumeTime(processId, resumeAfter) {
     try {
         processQueries.setProcessResumeTime(processId, resumeAfter);
         return true;
@@ -341,9 +341,9 @@ async function setProcessResumeTime(processId, resumeAfter) {
  * Sets process preemption by a higher priority process
  * @param {number} processId - Process ID to preempt
  * @param {number} preemptedBy - ID of the preempting process
- * @returns {Promise<boolean>} Success status
+ * @returns {boolean} Success status
  */
-async function setProcessPreemption(processId, preemptedBy) {
+function setProcessPreemption(processId, preemptedBy) {
     try {
         processQueries.setProcessPreemption(processId, preemptedBy);
         return true;
@@ -366,9 +366,9 @@ async function setProcessPreemption(processId, preemptedBy) {
 /**
  * Clears the preempted_by field without changing process status
  * @param {number} processId - Process ID to clear preemption for
- * @returns {Promise<boolean>} Success status
+ * @returns {boolean} Success status
  */
-async function clearProcessPreemption(processId) {
+function clearProcessPreemption(processId) {
     try {
         processQueries.clearProcessPreemption(processId);
         return true;
@@ -391,9 +391,9 @@ async function clearProcessPreemption(processId) {
  * Gets active/queued processes by action and target
  * @param {string} action - Process action type
  * @param {string} target - Process target (e.g. alliance ID)
- * @returns {Promise<Array>} Array of matching processes
+ * @returns {Array} Array of matching processes
  */
-async function getProcessesByActionAndTarget(action, target) {
+function getProcessesByActionAndTarget(action, target) {
     try {
         const processes = processQueries.getProcessesByActionAndTarget(action, target);
         return processes.map(process => {
@@ -419,9 +419,9 @@ async function getProcessesByActionAndTarget(action, target) {
 
 /**
  * Gets the next queued process by priority
- * @returns {Promise<Object|null>} Next process or null if queue is empty
+ * @returns {Object|null} Next process or null if queue is empty
  */
-async function getNextQueuedProcess() {
+function getNextQueuedProcess() {
     try {
         const process = processQueries.getNextQueuedProcess();
         if (process) {
@@ -445,9 +445,9 @@ async function getNextQueuedProcess() {
 
 /**
  * Gets all active processes
- * @returns {Promise<Array>} Array of active processes
+ * @returns {Array} Array of active processes
  */
-async function getActiveProcesses() {
+function getActiveProcesses() {
     try {
         const processes = processQueries.getActiveProcesses();
         return processes.map(process => {
@@ -472,9 +472,9 @@ async function getActiveProcesses() {
 /**
  * Checks if there are higher priority queued processes
  * @param {number} currentPriority - Current process priority
- * @returns {Promise<boolean>} True if higher priority processes exist
+ * @returns {boolean} True if higher priority processes exist
  */
-async function hasHigherPriorityQueued(currentPriority) {
+function hasHigherPriorityQueued(currentPriority) {
     try {
         return processQueries.hasHigherPriorityQueued(currentPriority);
     } catch (error) {
@@ -483,35 +483,10 @@ async function hasHigherPriorityQueued(currentPriority) {
 }
 
 /**
- * Cleans up old completed/failed processes
- * @param {number} maxAgeMs - Maximum age in milliseconds
- * @returns {Promise<boolean>} Success status
- */
-async function cleanupOldProcesses(maxAgeMs = 24 * 60 * 60 * 1000) { // Default 24 hours
-    try {
-        const cutoffDate = new Date(Date.now() - maxAgeMs).toISOString();
-        processQueries.cleanupOldProcesses(cutoffDate);
-
-        return true;
-    } catch (error) {
-        systemLogQueries.addLog(
-            'error',
-            'Error cleaning up old processes',
-            JSON.stringify({
-                error: error.message,
-                stack: error.stack,
-                function: 'cleanupOldProcesses'
-            })
-        );
-        return false;
-    }
-}
-
-/**
  * Resets processes that were active during a crash back to queued status
- * @returns {Promise<number>} Number of processes reset
+ * @returns {number} Number of processes reset
  */
-async function resetCrashedProcesses() {
+function resetCrashedProcesses() {
     try {
         const result = processQueries.resetCrashedProcesses();
 
@@ -545,7 +520,6 @@ module.exports = {
     getActiveProcesses,
     getProcessesByActionAndTarget,
     hasHigherPriorityQueued,
-    cleanupOldProcesses,
     resetCrashedProcesses,
     PROCESS_PRIORITIES,
     PROCESS_STATUS

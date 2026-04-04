@@ -17,6 +17,7 @@ const { createUniversalPaginationButtons, parsePaginationCustomId } = require('.
 const { getUserInfo, assertUserMatches, handleError, hasPermission, updateComponentsV2AfterSeparator } = require('../utility/commonFunctions');
 const { getEmojiMapForUser, getComponentEmoji } = require('./../utility/emojis');
 const { checkFeatureAccess } = require('../utility/checkAccess');
+const { getFilteredNotifications } = require('./editNotification');
 const ITEMS_PER_PAGE = 20;
 
 /**
@@ -126,7 +127,7 @@ async function handleTypeSelection(interaction) {
         }
 
         // Get filtered notifications
-        const notifications = getFilteredNotifications(type, interaction.guild?.id, interaction.user.id, adminData);
+        const notifications = getFilteredNotifications(type, interaction.user.id, adminData, interaction.guild?.id);
 
         if (!notifications || notifications.length === 0) {
             const noNotifMsg = type === 'server'
@@ -258,7 +259,7 @@ async function handleDeleteNotificationPagination(interaction) {
         }
 
         // Get filtered notifications
-        const notifications = getFilteredNotifications(subtype, interaction.guild?.id, interaction.user.id, adminData);
+        const notifications = getFilteredNotifications(subtype, interaction.user.id, adminData, interaction.guild?.id);
 
         await showNotificationSelection(interaction, notifications, newPage, subtype, lang);
 
@@ -486,47 +487,6 @@ async function handleDeleteCancel(interaction) {
     }
 }
 
-
-/**
- * Get filtered notifications based on type, guild, user, and permissions
- * @param {string} type - 'server' or 'private'
- * @param {string} guildId - Guild ID for server notifications
- * @param {string} userId - User ID for permission checking
- * @param {Object} adminData - Admin data for permissions
- * @returns {Array} Filtered notifications
- */
-function getFilteredNotifications(type, guildId, userId, adminData) {
-    // Get all notifications first
-    let notifications = notificationQueries.getAllNotifications();
-
-    // Filter out incomplete notifications
-    notifications = notifications.filter(n => n.completed === 1);
-
-    // Filter by type
-    if (type === 'server') {
-        notifications = notifications.filter(n => n.guild_id !== null);
-        // Filter by current guild only for server notifications
-        if (guildId) {
-            notifications = notifications.filter(n => n.guild_id === guildId);
-        }
-    } else if (type === 'private') {
-        notifications = notifications.filter(n => n.guild_id === null);
-    }
-
-    // Apply permission filtering based on type
-    if (type === 'private') {
-        // Private notifications: only show user's own, regardless of permission level
-        notifications = notifications.filter(n => n.created_by === userId);
-    } else if (type === 'server') {
-        // Server notifications: show all if user has notification permission
-        const hasNotificationAccess = hasPermission(adminData, PERMISSIONS.FULL_ACCESS, PERMISSIONS.NOTIFICATIONS_MANAGEMENT);
-        if (!hasNotificationAccess) {
-            notifications = notifications.filter(n => n.created_by === userId);
-        }
-    }
-
-    return notifications;
-}
 
 module.exports = {
     createDeleteNotificationButton,

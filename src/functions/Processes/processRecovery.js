@@ -18,82 +18,12 @@ class ProcessRecovery {
     constructor() {
         this.recoveryInProgress = false;
         this.client = null;
-        this.processesAwaitingConfirmation = new Set(); // Track processes waiting for admin confirmation
-        this.autoResumeTimeouts = new Map(); // Track timeout IDs for auto-resume (processId -> timeoutId)
+        this.processesAwaitingConfirmation = new Set();
+        this.autoResumeTimeouts = new Map();
+        this._initRetryCount = 0;
     }
 
-    /**
-     * Sends resume confirmation message to admin
-     * @param {Object} processData - Process data
-     * @param {Object} progress - Progress data
-     * @returns {Promise<void>}
-     */
-    async sendResumeConfirmation(processData, progress) {
-        try {
-            const { id: process_id, created_by: admin_id } = processData;
-            const { lang } = getUserInfo(admin_id);
-
-            // Create confirmation buttons
-            const resumeButton = new ButtonBuilder()
-                .setCustomId(`resume_crash_${process_id}`)
-                .setLabel(lang.processes.buttons.resumeProcess)
-                .setStyle(ButtonStyle.Success)
-                .setEmoji('✅');
-
-            const cancelButton = new ButtonBuilder()
-                .setCustomId(`cancel_crash_${process_id}`)
-                .setLabel(lang.processes.buttons.cancelProcess)
-                .setStyle(ButtonStyle.Danger)
-                .setEmoji('❌');
-
-            const row = new ActionRowBuilder().addComponents(resumeButton, cancelButton);
-
-            // Create status embed
-            const embed = new EmbedBuilder()
-                .setTitle(lang.processes.content.title.processRecovery)
-                .setDescription(lang.processes.content.description.processRecovery)
-                .setColor(0xFFA500) // Orange
-                .addFields([
-                    {
-                        name: lang.processes.content.processStatusField.name,
-                        value: lang.processes.content.processStatusField.value
-                            .replace('{processId}', process_id)
-                            .replace('{action}', processData.action)
-                            .replace('{priority}', processData.priority)
-                            .replace('{createdBy}', admin_id),
-                    },
-                    {
-                        name: lang.processes.content.autoResumeField.name,
-                        value: lang.processes.content.autoResumeField.value,
-
-                    }
-                ])
-                .setTimestamp();
-
-            try {
-                // Try to send DM to admin first
-                const admin = await this.client.users.fetch(admin_id);
-                await admin.send({ embeds: [embed], components: [row] });
-                return;
-            } catch (dmError) {
-                // Log the notification attempt
-                systemLogQueries.addLog(
-                    'warning',
-                    `Process ${process_id} needs manual intervention`,
-                    JSON.stringify({
-                        processId: process_id,
-                        adminId: admin_id,
-                        action: processData.action,
-                        dmFailed: true,
-                        function: 'sendResumeConfirmation'
-                    })
-                );
-            }
-
-        } catch (error) {
-            await handleError(null, null, error, 'sendResumeConfirmation function', false);
-        }
-    }
+    static MAX_INIT_RETRIES = 3;
 
     /**
      * Initializes the recovery system on bot startup
@@ -102,22 +32,18 @@ class ProcessRecovery {
      */
     async initialize(client) {
         try {
-            this.client = client; // Store client reference
-
-            // Get statistics before recovery
-            await queueManager.getQueueStats();
-
-            // Start recovery process
+            this.client = client;
             await this.recoverProcesses();
-
-            // Get statistics after recovery
-            await queueManager.getQueueStats();
-
-
+            this._initRetryCount = 0;
         } catch (error) {
             await handleError(null, null, error, 'initialize function', false);
-            // Try to initialize again in 30 seconds
-            setTimeout(() => this.initialize(client), 30000);
+            this._initRetryCount++;
+            if (this._initRetryCount < ProcessRecovery.MAX_INIT_RETRIES) {
+                setTimeout(() => this.initialize(client), 30000);
+            } else {
+                systemLogQueries.addLog('error', 'Process recovery initialization failed after max retries',
+                    JSON.stringify({ retries: this._initRetryCount, error: error.message, function: 'initialize' }));
+            }
         }
     }
 
@@ -252,7 +178,7 @@ class ProcessRecovery {
                 const done = progress.done || [];
                 const totalPlayers = pending.length + done.length;
 
-                if (pending.length === 0 || (done.length / totalPlayers > 0.9)) {
+                if (totalPlayers === 0 || pending.length === 0 || (done.length / totalPlayers > 0.9)) {
                     // Process was nearly complete or fully complete, just mark as done and reschedule
                     await updateProcessStatus(process.id, PROCESS_STATUS.COMPLETED);
 
@@ -468,6 +394,9 @@ class ProcessRecovery {
                 }
 
             } catch (error) {
+                // Ensure cleanup even on error
+                this.autoResumeTimeouts.delete(processId);
+                this.processesAwaitingConfirmation.delete(processId);
                 await handleError(null, null, error, 'auto-resume timeout function', false);
             }
         }, TIMEOUT_MS);
@@ -493,7 +422,7 @@ class ProcessRecovery {
 
             if (hasPendingWork) {
                 // Send confirmation to admin for manual intervention
-                await this.sendResumeConfirmation(process, progress);
+                await this.sendCrashRecoveryConfirmation(process, progress);
 
                 // Keep in queued status to await manual intervention
                 await updateProcessStatus(process.id, PROCESS_STATUS.QUEUED);

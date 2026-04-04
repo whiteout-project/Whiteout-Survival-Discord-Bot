@@ -209,26 +209,37 @@ class ProcessExecutor {
     }
 
     /**
+     * Wraps a process action with standardized error handling.
+     * Rate limit errors are re-thrown as expected; other errors are logged and re-thrown.
+     * @param {number} processId - Process ID
+     * @param {Function} actionFn - Async function to execute
+     * @param {string} actionName - Name for logging
+     * @returns {Promise<*>} Result of the action function
+     */
+    async executeWithErrorHandling(processId, actionFn, actionName) {
+        try {
+            return await actionFn(processId);
+        } catch (error) {
+            if (error.message === 'RATE_LIMIT' || error.message.includes('PAUSED_FOR_RATE_LIMIT')) {
+                throw error;
+            }
+            systemLogQueries.addLog(
+                'error',
+                `Error executing ${actionName} process ${processId}`,
+                JSON.stringify({ processId, error: error.message, stack: error.stack, function: actionName })
+            );
+            throw error;
+        }
+    }
+
+    /**
      * Executes add player process
      * @param {number} processId - Process ID
      * @returns {Promise<void>}
      */
     async executeAddPlayer(processId) {
-        try {
-            const { processPlayerData } = require('../Players/fetchPlayerData');
-            await processPlayerData(processId);
-        } catch (error) {
-            if (error.message === 'RATE_LIMIT' ||
-                error.message.includes('PAUSED_FOR_RATE_LIMIT')) {
-                throw error;
-            }
-            systemLogQueries.addLog(
-                'error',
-                `Error executing add player process ${processId}`,
-                JSON.stringify({ processId, error: error.message, stack: error.stack, function: 'executeAddPlayer' })
-            );
-            throw error;
-        }
+        const { processPlayerData } = require('../Players/fetchPlayerData');
+        await this.executeWithErrorHandling(processId, processPlayerData, 'executeAddPlayer');
     }
 
     /**
@@ -237,20 +248,7 @@ class ProcessExecutor {
      * @returns {Promise<void>}
      */
     async executeRefresh(processId) {
-        try {
-            await executeAutoRefreshFunction(processId);
-        } catch (error) {
-            if (error.message === 'RATE_LIMIT' ||
-                error.message.includes('PAUSED_FOR_RATE_LIMIT')) {
-                throw error;
-            }
-            systemLogQueries.addLog(
-                'error',
-                `Error executing refresh process ${processId}`,
-                JSON.stringify({ processId, error: error.message, stack: error.stack, function: 'executeRefresh' })
-            );
-            throw error;
-        }
+        await this.executeWithErrorHandling(processId, executeAutoRefreshFunction, 'executeRefresh');
     }
 
     /**
@@ -259,20 +257,7 @@ class ProcessExecutor {
      * @returns {Promise<void>}
      */
     async executeAutoRefresh(processId) {
-        try {
-            await executeAutoRefreshFunction(processId);
-        } catch (error) {
-            if (error.message === 'RATE_LIMIT' ||
-                error.message.includes('PAUSED_FOR_RATE_LIMIT')) {
-                throw error;
-            }
-            systemLogQueries.addLog(
-                'error',
-                `Error executing auto refresh process ${processId}`,
-                JSON.stringify({ processId, error: error.message, stack: error.stack, function: 'executeAutoRefresh' })
-            );
-            throw error;
-        }
+        await this.executeWithErrorHandling(processId, executeAutoRefreshFunction, 'executeAutoRefresh');
     }
 
     /**
@@ -282,29 +267,10 @@ class ProcessExecutor {
      */
     async executeRedeemGiftcode(processId) {
         const { executeRedeemOperation } = require('../GiftCode/redeemFunction');
-        try {
-            const result = await executeRedeemOperation(processId);
-
-            if (result.preempted) {
-                return;
-            }
-        } catch (error) {
-            if (error.message === 'RATE_LIMIT' ||
-                error.message.includes('PAUSED_FOR_RATE_LIMIT')) {
-                throw error; // Re-throw expected errors
-            }
-
-            systemLogQueries.addLog(
-                'error',
-                `Error executing redeem giftcode process ${processId}`,
-                JSON.stringify({
-                    processId,
-                    error: error.message,
-                    stack: error.stack,
-                    function: 'executeRedeemGiftcode'
-                })
-            );
-            throw error;
+        const result = await this.executeWithErrorHandling(processId, executeRedeemOperation, 'executeRedeemGiftcode');
+        // Result is undefined if executeWithErrorHandling caught and re-threw
+        if (result?.preempted) {
+            return;
         }
     }
 

@@ -11,7 +11,8 @@ const { startAutoCleanScheduler: startNotifAutoClean } = require('../functions/N
 const { initializeGiftCodeChannelCache } = require('../functions/GiftCode/giftCodeChannel');
 const { initializeEmojiPacks } = require('../functions/Settings/theme/emojisUploader');
 const { adminUsernameCache } = require('../functions/utility/adminUsernameCache');
-const { processQueries } = require('../functions/utility/database');
+const { processQueries, systemLogQueries } = require('../functions/utility/database');
+const { handlePostUpdateRestart, startAutoUpdateScheduler } = require('../functions/Settings/autoUpdate');
 
 module.exports = {
     name: Events.ClientReady,
@@ -29,10 +30,13 @@ module.exports = {
 
                 // Register commands globally (available in all guilds)
                 const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
-                await rest.put(
+                const registered = await rest.put(
                     Routes.applicationCommands(client.user.id),
                     { body: commands }
                 );
+
+                // Store command IDs for slash command mentions (</name:id>)
+                client.commandIds = new Map(registered.map(cmd => [cmd.name, cmd.id]));
 
                 client._commandsRegistered = true;
             } catch (error) {
@@ -40,52 +44,27 @@ module.exports = {
             }
         }
 
-        // Probe both player APIs and enable dual-API mode if both are reachable
-        try {
-            await playerApiManager.checkAvailability();
-        } catch (error) {
-            console.error('Failed to check player API availability:', error);
-        }
-
-        // Initialize Gift Code API client
-        try {
-            await initializeGiftCodeAPI(client);
-        } catch (error) {
-            console.error('Failed to initialize Gift Code API:', error);
-        }
-
-        // Initialize auto-refresh system
-        try {
-            await initializeAutoRefresh(client);
-        } catch (error) {
-            console.error('Failed to initialize auto-refresh system:', error);
-        }
-
-        // Initialize notification scheduler
-        try {
-            await initializeNotificationScheduler(client);
-        } catch (error) {
-            console.error('Failed to initialize notification scheduler:', error);
-        }
-
-        // Initialize automated backup scheduler
+        // Synchronous initializations (fast, no network I/O)
         try {
             initializeBackupScheduler(client);
         } catch (error) {
             console.error('Failed to initialize backup scheduler:', error);
         }
 
-        // Initialize process cleanup scheduler
         try {
-            // Clean up completed/failed processes immediately
+            initializeGiftCodeAPI(client);
+        } catch (error) {
+            console.error('Failed to initialize Gift Code API:', error);
+        }
+
+        // Process cleanup scheduler
+        try {
             processQueries.cleanupCompletedFailedProcesses();
 
-            // Clear any existing interval before creating a new one (handles reconnects)
             if (client.processCleanupInterval) {
                 clearInterval(client.processCleanupInterval);
             }
 
-            // Schedule cleanup every 24 hours
             client.processCleanupInterval = setInterval(() => {
                 try {
                     processQueries.cleanupCompletedFailedProcesses();
@@ -97,35 +76,78 @@ module.exports = {
             console.error('Failed to initialize process cleanup scheduler:', error);
         }
 
-        // Initialize ID channel cache
+        // System log cleanup — delete logs older than 7 days
         try {
-            await initializeIdChannelCache();
+            const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+            const cutoff = new Date(Date.now() - ONE_WEEK_MS).toISOString();
+            const { changes } = systemLogQueries.deleteLogsOlderThan(cutoff);
+            if (changes > 0) {
+                console.log(`System logs cleanup: deleted ${changes} entries older than 7 days`);
+            }
+
+            if (client.systemLogCleanupInterval) {
+                clearInterval(client.systemLogCleanupInterval);
+            }
+
+            client.systemLogCleanupInterval = setInterval(() => {
+                try {
+                    const cutoff = new Date(Date.now() - ONE_WEEK_MS).toISOString();
+                    const { changes } = systemLogQueries.deleteLogsOlderThan(cutoff);
+                    if (changes > 0) {
+                        console.log(`System logs cleanup: deleted ${changes} entries older than 7 days`);
+                    }
+                } catch (error) {
+                    console.error('Error during system log cleanup:', error);
+                }
+            }, 24 * 60 * 60 * 1000);
         } catch (error) {
-            console.error('Failed to initialize ID channel cache:', error);
+            console.error('Failed to initialize system log cleanup:', error);
         }
 
-        // Initialize ID channel auto-clean scheduler
         try {
             autoCleanScheduler.initialize(client);
         } catch (error) {
             console.error('Failed to initialize auto-clean scheduler:', error);
         }
 
-        // Initialize notification auto-clean scheduler
         try {
             startNotifAutoClean(client);
         } catch (error) {
             console.error('Failed to initialize notification auto-clean scheduler:', error);
         }
 
-        // Initialize gift code channel cache
         try {
-            await initializeGiftCodeChannelCache();
+            startAutoUpdateScheduler(client);
         } catch (error) {
-            console.error('Failed to initialize gift code channel cache:', error);
+            console.error('Failed to initialize auto-update scheduler:', error);
         }
 
-        // Initialize process recovery system — only on first ready to avoid duplicate recovery DMs
+        // Parallel async initializations (network/DB bound, independent of each other)
+        const parallelTasks = [
+            playerApiManager.checkAvailability()
+                .catch(error => console.error('Failed to check player API availability:', error)),
+            initializeAutoRefresh(client)
+                .catch(error => console.error('Failed to initialize auto-refresh system:', error)),
+            initializeNotificationScheduler(client)
+                .catch(error => console.error('Failed to initialize notification scheduler:', error)),
+            initializeIdChannelCache()
+                .catch(error => console.error('Failed to initialize ID channel cache:', error)),
+            initializeGiftCodeChannelCache()
+                .catch(error => console.error('Failed to initialize gift code channel cache:', error)),
+            initializeEmojiPacks(client)
+                .catch(error => console.error('Failed to initialize emoji packs:', error)),
+            adminUsernameCache.initialize(client)
+                .catch(error => console.error('Failed to initialize admin username cache:', error))
+        ];
+
+        await Promise.allSettled(parallelTasks);
+
+        // Update the "Restarting..." message if this is a post-update restart
+        await handlePostUpdateRestart(client).catch(error =>
+            console.error('Failed to handle post-update restart message:', error.message)
+        );
+
+        // Process recovery — runs after other systems are ready
         if (!client._processRecoveryInitialized) {
             try {
                 await processRecovery.initialize(client);
@@ -134,24 +156,8 @@ module.exports = {
                 console.error('Failed to initialize process recovery:', error);
             }
         } else {
-            // On reconnect, update the client reference without re-running full recovery
             processRecovery.client = client;
         }
-
-        // Initialize default emoji packs
-        try {
-            await initializeEmojiPacks(client);
-        } catch (error) {
-            console.error('Failed to initialize emoji packs:', error);
-        }
-
-        // Initialize admin username cache
-        try {
-            await adminUsernameCache.initialize(client);
-        } catch (error) {
-            console.error('Failed to initialize admin username cache:', error);
-        }
-
 
     },
 };

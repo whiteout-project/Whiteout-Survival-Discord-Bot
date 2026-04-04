@@ -107,12 +107,42 @@ class AutoRefreshManager {
     }
 
     /**
+     * Clean up active refresh tracking and reschedule if alliance still has auto-refresh enabled.
+     * Use this in ALL error/early-exit paths to prevent the refresh chain from dying.
+     * @param {number} allianceId - Alliance ID
+     */
+    _cleanupAndReschedule(allianceId) {
+        this.activeRefreshes.delete(allianceId);
+        try {
+            const alliance = allianceQueries.getAllianceById(allianceId);
+            if (alliance && alliance.channel_id) {
+                const interval = alliance.interval;
+                const hasInterval = interval && (
+                    (typeof interval === 'number' && interval > 0) ||
+                    (typeof interval === 'string' && interval.startsWith('@'))
+                );
+                if (hasInterval) {
+                    this.scheduleNextRefresh(alliance);
+                }
+            }
+        } catch (err) {
+            // Don't let rescheduling errors cascade
+        }
+    }
+
+    /**
      * Schedule the next refresh for an alliance
      * @param {Object} alliance - Alliance data
      * @returns {void}
      */
     scheduleNextRefresh(alliance) {
         const { id: allianceId, interval } = alliance;
+
+        // Clear any existing scheduled refresh to prevent duplicate chains
+        if (this.scheduledRefreshes.has(allianceId)) {
+            clearTimeout(this.scheduledRefreshes.get(allianceId));
+        }
+
         const intervalMs = getRefreshTimeout(interval); // Handles both minute-based and time-based (@HH:MM)
 
         const timeoutId = setTimeout(async () => {
@@ -184,6 +214,8 @@ class AutoRefreshManager {
             await queueManager.manageQueue(processResult);
 
         } catch (error) {
+            // Clean up stale activeRefreshes entry to prevent permanent blocking
+            this.activeRefreshes.delete(alliance.id);
             await handleError(null, null, error, 'createRefreshProcess', false);
         }
     }
@@ -210,8 +242,7 @@ class AutoRefreshManager {
             // Fetch channel dynamically (even if it changed since process creation)
             if (!this.client) {
                 await handleError(null, null, new Error('Discord client not initialized'), 'executeAutoRefresh', false);
-                // Clean up active refresh tracking - process will be marked as failed by executeProcesses.js
-                this.activeRefreshes.delete(alliance.id);
+                this._cleanupAndReschedule(alliance.id);
                 return;
             }
 
@@ -225,14 +256,13 @@ class AutoRefreshManager {
                     channel = null;
                 } else {
                     await handleError(null, null, fetchErr, 'executeAutoRefresh_channelFetch', false);
-                    this.activeRefreshes.delete(alliance.id);
+                    this._cleanupAndReschedule(alliance.id);
                     return;
                 }
             }
             if (!channel) {
                 await handleError(null, null, new Error(`Channel ${alliance.channel_id} not found for alliance ${alliance.name}`), 'executeAutoRefresh', false);
-                // Clean up active refresh tracking - process will be marked as failed by executeProcesses.js
-                this.activeRefreshes.delete(alliance.id);
+                this._cleanupAndReschedule(alliance.id);
                 return;
             }
 
@@ -243,15 +273,17 @@ class AutoRefreshManager {
 
         } catch (error) {
             await handleError(null, null, error, 'executeAutoRefresh', false);
-            // Mark process as failed and clean up
+            // Mark process as failed and clean up + reschedule
             try {
                 await updateProcessStatus(processId, 'failed');
+            } catch (statusError) {
+                await handleError(null, null, statusError, 'executeAutoRefresh_cleanup', false);
+            }
+            try {
                 const processData = await getProcessById(processId);
-                if (processData) {
-                    const alliance = allianceQueries.getAllianceById(processData.target);
-                    if (alliance) {
-                        this.activeRefreshes.delete(alliance.id);
-                    }
+                const allianceId = processData ? processData.target : null;
+                if (allianceId) {
+                    this._cleanupAndReschedule(parseInt(allianceId, 10));
                 }
             } catch (cleanupError) {
                 await handleError(null, null, cleanupError, 'executeAutoRefresh_cleanup', false);
@@ -274,8 +306,8 @@ class AutoRefreshManager {
             const playerIds = progress.pending;
 
             if (playerIds.length === 0) {
-                // Clean up active refresh tracking - process completion handled by executeProcesses.js
-                this.activeRefreshes.delete(alliance.id);
+                // Clean up active refresh tracking and reschedule
+                this._cleanupAndReschedule(alliance.id);
                 return; // Process will be completed by executeProcesses.js
             }
 
@@ -298,8 +330,8 @@ class AutoRefreshManager {
                 // This check happens OUTSIDE the try-catch to avoid marking players as failed
                 const currentProcess = await getProcessById(processId);
                 if (currentProcess.status === 'completed') {
-                    // Process was completed externally - clean up and exit
-                    this.activeRefreshes.delete(alliance.id);
+                    // Process was completed externally - clean up and reschedule
+                    this._cleanupAndReschedule(alliance.id);
                     return; // Exit without trying to complete again
                 } else if (currentProcess.status !== 'active') {
                     // Process was preempted - break out of loop without error
@@ -634,7 +666,7 @@ class AutoRefreshManager {
             // Create embeds for each change type
             if (changesByType.nickname.length > 0) {
                 const nicknameEmbeds = this.createChangeEmbeds(
-                    replaceEmojiPlaceholders('️{emoji.1008} Nickname Changes', globalEmojiMap),
+                    replaceEmojiPlaceholders(`️{emoji.1008} ${alliance.name} Nickname Changes`, globalEmojiMap),
                     changesByType.nickname,
                     (item) => `\u200E**${item.change.oldValue}** → **${item.change.newValue}**`,
                     0x3498db,
@@ -645,7 +677,7 @@ class AutoRefreshManager {
 
             if (changesByType.furnace_level.length > 0) {
                 const furnaceEmbeds = this.createChangeEmbeds(
-                    replaceEmojiPlaceholders('{emoji.1012} Furnace Level Changes', globalEmojiMap),
+                    replaceEmojiPlaceholders(`{emoji.1012} ${alliance.name} Furnace Level Changes`, globalEmojiMap),
                     changesByType.furnace_level,
                     (item) => `\u200E**${item.player.nickname}:** ${item.change.formattedOldValue} → **${item.change.formattedNewValue}**`,
                     0xe74c3c,
@@ -656,7 +688,7 @@ class AutoRefreshManager {
 
             if (changesByType.state.length > 0) {
                 const stateEmbeds = this.createChangeEmbeds(
-                    replaceEmojiPlaceholders('{emoji.1040} State Changes', globalEmojiMap),
+                    replaceEmojiPlaceholders(`{emoji.1040} ${alliance.name} State Changes`, globalEmojiMap),
                     changesByType.state,
                     (item) => `\u200E**${item.player.nickname}:** State ${item.change.oldValue} → **${item.change.newValue}**`,
                     0x9b59b6,

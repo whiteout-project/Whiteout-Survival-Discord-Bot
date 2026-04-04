@@ -1,4 +1,4 @@
-const { adminQueries, userQueries, systemLogQueries, settingsQueries } = require('./database');
+const { adminQueries, userQueries, systemLogQueries, settingsQueries, allianceQueries } = require('./database');
 const { SeparatorBuilder, SeparatorSpacingSize, PermissionFlagsBits } = require('discord.js');
 const languages = require('../../i18n');
 const { getEmojiMapForUser, wrapLangWithEmojis, getComponentEmoji } = require('./emojis');
@@ -220,6 +220,35 @@ function updateComponentsV2AfterSeparator(interaction, newSection) {
     }
 
     return updatedComponents;
+}
+
+/**
+ * Gets alliances accessible to a user based on their admin permissions.
+ * Owner/full-access users see all alliances; player-management users see only assigned ones.
+ * @param {Object} adminData - Admin data from database
+ * @returns {Array} Array of alliance objects the user can access
+ */
+function getAlliancesForUser(adminData) {
+    const { PERMISSIONS } = require('../Settings/admin/permissions');
+    try {
+        if (hasPermission(adminData, PERMISSIONS.FULL_ACCESS)) {
+            return allianceQueries.getAllAlliances();
+        }
+
+        if (hasPermission(adminData, PERMISSIONS.PLAYER_MANAGEMENT)) {
+            const assignedAllianceIds = JSON.parse(adminData.alliances || '[]');
+            if (assignedAllianceIds.length === 0) return [];
+
+            return assignedAllianceIds
+                .map(id => allianceQueries.getAllianceById(id))
+                .filter(Boolean);
+        }
+
+        return [];
+    } catch (error) {
+        console.error('Error getting alliances for user:', error);
+        return [];
+    }
 }
 
 /**
@@ -598,6 +627,7 @@ module.exports = {
     handleError,
     shouldIgnoreError,
     hasPermission,
+    getAlliancesForUser,
     updateComponentsV2AfterSeparator,
     createAllianceSelectionComponents,
     parseRefreshInterval,

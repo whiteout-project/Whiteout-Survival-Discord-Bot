@@ -12,7 +12,7 @@ const { allianceQueries, playerQueries } = require('../utility/database');
 const { PERMISSIONS } = require('../Settings/admin/permissions');
 const { createUniversalPaginationButtons, parsePaginationCustomId } = require('../Pagination/universalPagination');
 const { getFurnaceReadable } = require('./furnaceReadable');
-const { getUserInfo, assertUserMatches, handleError, hasPermission, updateComponentsV2AfterSeparator, createAllianceSelectionComponents } = require('../utility/commonFunctions');
+const { getUserInfo, assertUserMatches, handleError, hasPermission, getAlliancesForUser, updateComponentsV2AfterSeparator, createAllianceSelectionComponents } = require('../utility/commonFunctions');
 const { getEmojiMapForUser, getComponentEmoji } = require('../utility/emojis');
 
 const PLAYERS_PER_PAGE = 10;
@@ -33,33 +33,6 @@ function createViewPlayersButton(userId, lang = {}) {
 
 
 /**
- * Gets alliances available to a user based on their permissions
- * @param {Object} adminData - Admin data from database
- * @returns {Array} Array of alliance objects
- */
-function getAlliancesForUser(adminData) {
-    try {
-        if (adminData.is_owner || (adminData.permissions & PERMISSIONS.FULL_ACCESS)) {
-            return allianceQueries.getAllAlliances();
-        }
-
-        if (adminData.permissions & PERMISSIONS.PLAYER_MANAGEMENT) {
-            const assignedAlliances = JSON.parse(adminData.alliances || '[]');
-            if (assignedAlliances.length === 0) return [];
-
-            return assignedAlliances.map(allianceId =>
-                allianceQueries.getAllianceById(allianceId)
-            ).filter(Boolean);
-        }
-
-        return [];
-    } catch (error) {
-        console.error('Error getting alliances for user:', error);
-        return [];
-    }
-}
-
-/**
  * Creates the alliance selection container using the shared utility
  * @param {import('discord.js').Interaction} interaction
  * @param {Array} alliances - Alliances with players
@@ -67,7 +40,7 @@ function getAlliancesForUser(adminData) {
  * @param {number} page - Current page (default 0)
  * @returns {{ components: Array }}
  */
-function createAllianceSelectionContainer(interaction, alliances, lang, page = 0) {
+function createAllianceSelectionContainer(interaction, alliances, lang, playerCountMap, page = 0) {
     return createAllianceSelectionComponents({
         interaction,
         alliances,
@@ -81,17 +54,14 @@ function createAllianceSelectionContainer(interaction, alliances, lang, page = 0
         description: lang.players.viewPlayers.content.description.base,
         accentColor: 2417109, // Blue
         showAll: false,
-        optionMapper: (alliance) => {
-            const playerCount = playerQueries.getPlayersByAllianceId(alliance.id).length;
-            return {
-                label: alliance.name,
-                value: alliance.id.toString(),
-                description: lang.players.viewPlayers.selectMenu.allianceSelect.description
-                    .replace('{alliancePriority}', alliance.priority)
-                    .replace('{playerCount}', playerCount),
-                emoji: getComponentEmoji(getEmojiMapForUser(interaction.user.id), '1001')
-            };
-        }
+        optionMapper: (alliance) => ({
+            label: alliance.name,
+            value: alliance.id.toString(),
+            description: lang.players.viewPlayers.selectMenu.allianceSelect.description
+                .replace('{alliancePriority}', alliance.priority)
+                .replace('{playerCount}', playerCountMap[alliance.id] || 0),
+            emoji: getComponentEmoji(getEmojiMapForUser(interaction.user.id), '1001')
+        })
     });
 }
 
@@ -207,7 +177,7 @@ async function handleViewPlayersButton(interaction) {
             });
         }
 
-        const { components } = createAllianceSelectionContainer(interaction, alliancesWithPlayers, lang, 0);
+        const { components } = createAllianceSelectionContainer(interaction, alliancesWithPlayers, lang, playerCountMap, 0);
         await interaction.update({
             components,
             flags: MessageFlags.IsComponentsV2
@@ -237,7 +207,7 @@ async function handleViewPlayersAlliancePagination(interaction) {
 
         const alliancesWithPlayers = allAlliances.filter(a => (playerCountMap[a.id] || 0) > 0);
 
-        const { components } = createAllianceSelectionContainer(interaction, alliancesWithPlayers, lang, newPage);
+        const { components } = createAllianceSelectionContainer(interaction, alliancesWithPlayers, lang, playerCountMap, newPage);
         await interaction.update({
             components,
             flags: MessageFlags.IsComponentsV2

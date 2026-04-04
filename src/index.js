@@ -100,54 +100,19 @@ function unregisterCommand(filePath) {
     loadedCommands.delete(filePath);
 }
 
-function loadEvents() {
-    if (!fs.existsSync(eventsDir)) return;
-
-    const eventFiles = fs.readdirSync(eventsDir).filter((file) => file.endsWith('.js'));
-    for (const file of eventFiles) {
-        const filePath = path.join(eventsDir, file);
+function loadModules(dir, registerFn, label) {
+    if (!fs.existsSync(dir)) return;
+    for (const file of fs.readdirSync(dir).filter(f => f.endsWith('.js'))) {
         try {
-            registerEvent(filePath);
+            registerFn(path.join(dir, file));
         } catch (error) {
-            console.error(`Failed to load event ${file}:`, error.message);
-        }
-    }
-}
-
-function loadHandlers() {
-    if (!fs.existsSync(handlersDir)) return;
-
-    const handlerFiles = fs.readdirSync(handlersDir).filter((file) => file.endsWith('.js'));
-    for (const file of handlerFiles) {
-        const filePath = path.join(handlersDir, file);
-        try {
-            registerHandler(filePath);
-        } catch (error) {
-            console.error(`Failed to load handler ${file}:`, error.message);
-        }
-    }
-}
-
-function loadCommands() {
-    if (!fs.existsSync(commandsDir)) return;
-
-    const commandFiles = fs.readdirSync(commandsDir).filter((file) => file.endsWith('.js'));
-    for (const file of commandFiles) {
-        const filePath = path.join(commandsDir, file);
-        try {
-            registerCommand(filePath);
-        } catch (error) {
-            console.error(`Failed to load command ${file}:`, error.message);
+            console.error(`Failed to load ${label} ${file}:`, error.message);
         }
     }
 }
 
 function getAllHandlerPaths() {
-    if (!fs.existsSync(handlersDir)) return [];
-
-    return fs.readdirSync(handlersDir)
-        .filter((file) => file.endsWith('.js'))
-        .map((file) => path.join(handlersDir, file));
+    return Array.from(loadedHandlers.keys());
 }
 
 /**
@@ -164,9 +129,7 @@ function getAllCommandPaths() {
     return Array.from(loadedCommands.keys());
 }
 
-// Helper: write/update TOKEN in src/.env
-const os = require('os');
-async function updateTokenInEnv(token) {
+function updateTokenInEnv(token) {
     try {
         const envPath = path.join(__dirname, '.env');
         let content = '';
@@ -181,69 +144,98 @@ async function updateTokenInEnv(token) {
             }
         }
         if (!found) lines.unshift(`TOKEN=${token}`);
-        fs.writeFileSync(envPath, lines.join(os.EOL), 'utf8');
-    } catch (e) {
-        console.error('Failed to write token to .env:', e.message);
+        fs.writeFileSync(envPath, lines.join('\n'), 'utf8');
+    } catch (error) {
+        console.error('Failed to write token to .env:', error.message);
     }
 }
 
-// Prompt for token and attempt login (handles missing/invalid token)
-async function ensureTokenAndLogin() {
-    // Prefer a shared prompt if starter.js exposed one to avoid multiple readline instances
-    const hasSharedPrompt = typeof global.promptLine === 'function';
-    const question = hasSharedPrompt
-        ? (q) => Promise.resolve(global.promptLine(q))
-        : (() => {
-            const readline = require('readline');
-            const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-            const qfn = (q) => new Promise((res) => rl.question(q, res));
-            // when using a private rl, ensure we close it when finished
-            qfn._close = () => rl.close();
-            return qfn;
-        })();
+function loadCoreModules() {
+    loadModules(eventsDir, registerEvent, 'event');
+    loadModules(handlersDir, registerHandler, 'handler');
+    loadModules(commandsDir, registerCommand, 'command');
+}
 
-    loadEvents();
-    loadHandlers();
-    loadCommands();
+function loadPluginsAndManager() {
+    const pluginsLoader = require('./functions/Plugin/pluginsLoader');
+    const pluginInstallModule = require('./functions/Plugin/pluginInstall');
+    const pluginDeleteModule = require('./functions/Plugin/pluginDelete');
+    const pluginResults = pluginsLoader.loadPlugins({ registerCommand, registerEvent, registerHandler });
+    if (pluginResults.failed.length > 0) {
+        for (const fail of pluginResults.failed) {
+            console.error(`[PLUGINS] ${fail.name}: ${fail.error}`);
+        }
+    }
 
-    let token = process.env.TOKEN && process.env.TOKEN.trim() ? process.env.TOKEN.trim() : null;
+    const pluginRegistrar = {
+        registerCommand, unregisterCommand,
+        registerEvent, unregisterEvent,
+        registerHandler, unregisterHandler
+    };
+    global.pluginManager = {
+        fetchRegistry: () => pluginInstallModule.fetchRegistry(),
+        getInstalled: () => pluginsLoader.getInstalledPlugins(),
+        getCount: () => pluginsLoader.getPluginCount(),
+        install: (name) => pluginInstallModule.installPlugin(name, pluginRegistrar),
+        remove: (name) => pluginDeleteModule.removePlugin(name, pluginRegistrar),
+        checkUpdates: () => pluginInstallModule.checkPluginUpdates(),
+        update: (name) => pluginInstallModule.updatePlugin(name, pluginRegistrar)
+    };
+}
+
+function createQuestionPrompt() {
+    if (typeof global.promptLine === 'function') {
+        return (q) => Promise.resolve(global.promptLine(q));
+    }
+    const readline = require('readline');
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    const questionFn = (q) => new Promise((resolve) => rl.question(q, resolve));
+    questionFn._close = () => rl.close();
+    return questionFn;
+}
+
+async function promptAndLogin(question) {
+    let token = process.env.TOKEN?.trim() || null;
 
     while (true) {
         if (!token) {
             process.stdout.write('\nDiscord token missing — paste your bot token below and press Enter:\n');
             token = await question('> ');
-            token = token && token.trim() ? token.trim() : null;
+            token = token?.trim() || null;
             if (!token) continue;
-            await updateTokenInEnv(token);
+            updateTokenInEnv(token);
             process.env.TOKEN = token;
             console.log('Token saved to .env file, bot started with new token.');
         }
 
         try {
             await client.login(token);
-            // close private readline if we created one
-            if (question && typeof question._close === 'function') question._close();
+            if (typeof question._close === 'function') question._close();
             break;
         } catch (error) {
-            // Handle invalid token specifically by prompting user to re-enter
             const isInvalid = error && (error.code === 'TokenInvalid' || /TokenInvalid/i.test(String(error.message)));
             console.error('Failed to login:', isInvalid ? 'Invalid token.' : error.message);
             if (isInvalid) {
-                // Ask user for a new token and persist it
                 process.stdout.write('\nThe provided token is invalid — paste a valid bot token below and press Enter:\n');
                 token = await question('> ');
-                token = token && token.trim() ? token.trim() : null;
+                token = token?.trim() || null;
                 if (!token) continue;
-                await updateTokenInEnv(token);
+                updateTokenInEnv(token);
                 process.env.TOKEN = token;
                 continue;
             }
 
-            // Other errors: rethrow to allow caller to handle
-            if (question && typeof question._close === 'function') question._close();
+            if (typeof question._close === 'function') question._close();
             throw error;
         }
     }
+}
+
+async function ensureTokenAndLogin() {
+    const question = createQuestionPrompt();
+    loadCoreModules();
+    loadPluginsAndManager();
+    await promptAndLogin(question);
 }
 
 // Initialize the bot

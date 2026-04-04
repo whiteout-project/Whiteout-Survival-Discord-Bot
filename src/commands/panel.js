@@ -8,6 +8,7 @@ const { createGiftCodeManagementButton } = require('../functions/GiftCode/giftCo
 const { createNotificationManagementButton } = require('../functions/Notification/notification');
 const { createSupportButton } = require('../functions/Support/support');
 const { createCalculatorsButton } = require('../functions/Calculators/calculators');
+const { createPluginsButton } = require('../functions/Plugin/plugins');
 const { PERMISSIONS } = require('../functions/Settings/admin/permissions');
 const { getUserInfo, handleError, hasPermission } = require('../functions/utility/commonFunctions');
 const { checkFeatureAccess } = require('../functions/utility/checkAccess');
@@ -166,6 +167,10 @@ module.exports = {
         const settingsButton = createSettingsButton(interaction.user.id, lang);
         const calculatorsButton = createCalculatorsButton(interaction.user.id, lang);
         if (!hasCalculatorsAccess) calculatorsButton.setDisabled(true);
+
+        const pluginsButton = createPluginsButton(interaction.user.id, lang);
+        if (!adminData?.is_owner) pluginsButton.setDisabled(true);
+
         const supportButton = createSupportButton(interaction.user.id, lang);
 
         // Build Components 
@@ -192,6 +197,9 @@ module.exports = {
                         `${lang.panel.mainPage.content.calculatorsField.name}\n` +
                         `${lang.panel.mainPage.content.calculatorsField.value}\n` +
 
+                        `${lang.panel.mainPage.content.pluginsField.name}\n` +
+                        `${lang.panel.mainPage.content.pluginsField.value}\n` +
+
                         `${lang.panel.mainPage.content.settingsField.name}\n` +
                         `${lang.panel.mainPage.content.settingsField.value}\n`
                     )
@@ -209,6 +217,7 @@ module.exports = {
                     ),
                     new ActionRowBuilder().addComponents(
                         calculatorsButton,
+                        pluginsButton,
                         settingsButton
                     )
                 ),

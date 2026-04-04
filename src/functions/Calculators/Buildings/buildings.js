@@ -88,6 +88,15 @@ const EMPTY_TOTALS = { meat: 0, wood: 0, coal: 0, iron: 0, steel: 0, fireCrystal
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+/** Whether a building should offer the "Not Built" (level 0) from-level option.
+ *  Basic: only if level-1 has any non-zero cost. FC: only for warAcademy. */
+function shouldShowNotBuilt(type, bldId, dataObj) {
+    if (type === 'f') return bldId === 'warAcademy';
+    const lvl1 = dataObj[bldId]?.['1'];
+    if (!lvl1?.cost) return false;
+    return Object.values(lvl1.cost).some(v => v > 0);
+}
+
 /** Clamp a value between 0 and 5. */
 function clamp5(v) { return Math.min(5, Math.max(0, v || 0)); }
 
@@ -108,6 +117,7 @@ function getBuildingLevelKeys(buildingData) {
 
 /** Returns the human-readable display string for a level key. */
 function getLevelDisplay(key, type, lang) {
+    if (key === '0') return lang.calculators.buildings.notBuilt;
     if (type === 'f') return getFurnaceReadable(parseInt(key));
     return lang.calculators.buildings.levelDisplay.replace('{key}', key);
 }
@@ -278,10 +288,10 @@ function calculateUpgrade(buildingData, fromKey, toKey, buffs) {
     if (!buildingData) return null;
 
     const levelKeys = getBuildingLevelKeys(buildingData);
-    const fromIdx   = levelKeys.indexOf(String(fromKey));
+    const fromIdx   = fromKey === '0' ? -1 : levelKeys.indexOf(String(fromKey));
     const toIdx     = levelKeys.indexOf(String(toKey));
 
-    if (fromIdx === -1 || toIdx === -1 || fromIdx > toIdx) return null;
+    if ((fromIdx === -1 && fromKey !== '0') || toIdx === -1 || fromIdx >= toIdx) return null;
 
     // Resource reduction comes from Zinman level
     const resourceReduction  = ZINMAN_REDUCE[clamp5(buffs?.zinmanLevel)] / 100;
@@ -299,8 +309,8 @@ function calculateUpgrade(buildingData, fromKey, toKey, buffs) {
     let totalSeconds = 0;
     let numLevels    = 0;
 
-    // Sum the cost for each level (from fromIdx up to and including toIdx)
-    for (let i = fromIdx; i <= toIdx; i++) {
+    // Sum the cost for each level after fromIdx (fromKey is the current level, already paid)
+    for (let i = fromIdx + 1; i <= toIdx; i++) {
         const levelData = buildingData[levelKeys[i]];
         if (!levelData) continue;
 
@@ -553,8 +563,9 @@ function buildControlsContainer(type, bldId, fromKey, toKey, pageFrom, pageTo, u
         const levelKeys = getBuildingLevelKeys(dataObj[bldId]);
 
         if (fromKey === 'x') {
-            // Show from-level select
-            const fromLevelKeys = levelKeys.slice(0, -1);
+            // Conditionally prepend "Not Built" (level 0) based on building type and cost data
+            const notBuilt = shouldShowNotBuilt(type, bldId, dataObj);
+            const fromLevelKeys = notBuilt ? ['0', ...levelKeys.slice(0, -1)] : levelKeys.slice(0, -1);
             const pf = Math.max(0, parseInt(pageFrom) || 0);
             const startFrom = pf * PAGE_SIZE;
             const sliceFrom = fromLevelKeys.slice(startFrom, startFrom + PAGE_SIZE);
@@ -577,8 +588,8 @@ function buildControlsContainer(type, bldId, fromKey, toKey, pageFrom, pageTo, u
             }
         } else {
             // from-level already chosen — show to-level select
-            const fromIdx = levelKeys.indexOf(fromKey);
-            const toKeys = fromIdx >= 0 ? levelKeys.slice(fromIdx + 1) : [];
+            const fromIdx = fromKey === '0' ? -1 : levelKeys.indexOf(fromKey);
+            const toKeys = levelKeys.slice(fromIdx + 1);
             const pt = Math.max(0, parseInt(pageTo) || 0);
             const startTo = pt * PAGE_SIZE;
             const sliceTo = toKeys.slice(startTo, startTo + PAGE_SIZE);

@@ -27,7 +27,7 @@ function createAutoDeleteButton(userId, lang, isEnabled) {
  * @param {import('discord.js').ButtonInteraction} interaction 
  */
 async function handleToggleAutoDelete(interaction) {
-    const { adminData, lang } = await getUserInfo(interaction.user.id);
+    const { adminData, lang } = getUserInfo(interaction.user.id);
     try {
         // Verify user
         const expectedUserId = interaction.customId.split('_')[3]; // toggle_auto_delete_userId
@@ -47,11 +47,11 @@ async function handleToggleAutoDelete(interaction) {
         const newAutoDelete = currentSettings.auto_delete ? 0 : 1;
         settingsQueries.updateAutoDelete.run(newAutoDelete);
 
-        // Refresh settings display
-        const { createSettingsComponents } = require('./settings');
-        const newSection = createSettingsComponents(interaction, adminData, lang);
+        // Refresh features category display (stay on same category page)
+        const { createFeaturesCategory } = require('./settings');
+        const featuresComponents = createFeaturesCategory(interaction.user.id, adminData, lang);
         await interaction.update({
-            components: newSection,
+            components: featuresComponents,
             flags: MessageFlags.IsComponentsV2
         });
 

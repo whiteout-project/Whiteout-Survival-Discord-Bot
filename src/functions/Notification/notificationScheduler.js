@@ -524,9 +524,54 @@ class NotificationScheduler {
             }
 
         } catch (error) {
+            // Discord error codes: 10004 = Unknown Guild, 10003 = Unknown Channel
+            const isTargetGone = error.code === 10004 || error.code === 10003;
+
+            if (isTargetGone) {
+                await this.disableOrphanedNotification(notification, error.code);
+            }
+
             await handleError(null, null, error, `NotificationScheduler.sendNotification - notification ${notification.id}`);
         } finally {
             this.activeSends.delete(sendKey);
+        }
+    }
+
+    /**
+     * Disables a notification whose target guild/channel no longer exists
+     * and notifies the creator via DM.
+     * @param {Object} notification - The notification to disable
+     * @param {number} errorCode - Discord API error code (10003 or 10004)
+     */
+    async disableOrphanedNotification(notification, errorCode) {
+        try {
+            // Disable the notification
+            notificationQueries.updateNotificationActiveStatus(notification.id, false);
+            this.removeNotification(notification.id);
+
+            // Notify the creator via DM
+            if (!notification.created_by) return;
+
+            const { getUserInfo } = require('../utility/commonFunctions');
+            const { lang } = getUserInfo(notification.created_by);
+            const notifErrors = lang?.settings?.notification?.errors;
+
+            const reason = errorCode === 10004
+                ? (notifErrors?.guildNoLongerAccessible || 'The bot no longer has access to the server.')
+                : (notifErrors?.channelNoLongerAccessible || 'The channel no longer exists or is inaccessible.');
+
+            const message = (notifErrors?.notificationAutoDisabled || '⚠️ Your notification **"{name}"** (ID: {id}) has been automatically disabled.\n\nReason: {reason}')
+                .replace('{name}', notification.name || `#${notification.id}`)
+                .replace('{id}', notification.id)
+                .replace('{reason}', reason);
+
+            const creator = await this.client.users.fetch(notification.created_by);
+            if (creator) {
+                await creator.send({ content: message });
+            }
+        } catch (dmError) {
+            // DM may fail if user has DMs disabled — log but don't propagate
+            console.error(`Failed to notify user ${notification.created_by} about disabled notification ${notification.id}:`, dmError.message);
         }
     }
 

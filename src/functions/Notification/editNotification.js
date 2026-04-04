@@ -20,7 +20,7 @@ const { PERMISSIONS } = require('../Settings/admin/permissions');
 const { notificationScheduler } = require('./notificationScheduler');
 const { createUniversalPaginationButtons, parsePaginationCustomId } = require('../Pagination/universalPagination');
 const { getUserInfo, assertUserMatches, handleError, hasPermission, updateComponentsV2AfterSeparator } = require('../utility/commonFunctions');
-const { parseMentions, convertTagsToMentions } = require('./notificationUtils');
+const { parseMentions, convertTagsToMentions, parseDateParts, parseTimeParts } = require('./notificationUtils');
 const { getEmojiMapForUser, getComponentEmoji } = require('../utility/emojis');
 const { checkFeatureAccess } = require('../utility/checkAccess');
 
@@ -626,36 +626,25 @@ async function handleInfoModal(interaction) {
         const dateStr = interaction.fields.getTextInputValue('date');
         const timeStr = interaction.fields.getTextInputValue('time');
 
-        // Validate and parse date/time
-        const dateParts = dateStr.split('/');
-        if (dateParts.length !== 3) {
+        // Validate and parse date/time using shared validators
+        const parsedDate = parseDateParts(dateStr);
+        if (!parsedDate) {
             return await interaction.reply({
                 content: lang.notification.editNotification.errors.invalidDateFormat,
                 ephemeral: true
             });
         }
 
-        const timeParts = timeStr.split(':');
-        if (timeParts.length !== 3) {
+        const parsedTime = parseTimeParts(timeStr);
+        if (!parsedTime) {
             return await interaction.reply({
                 content: lang.notification.editNotification.errors.invalidTimeFormat,
                 ephemeral: true
             });
         }
 
-        const day = parseInt(dateParts[0]);
-        const month = parseInt(dateParts[1]) - 1;
-        const year = parseInt(dateParts[2]);
-        const hour = parseInt(timeParts[0]);
-        const minute = parseInt(timeParts[1]);
-        const second = parseInt(timeParts[2]);
-
-        if (isNaN(day) || isNaN(month) || isNaN(year) || isNaN(hour) || isNaN(minute) || isNaN(second)) {
-            return await interaction.reply({
-                content: lang.notification.editNotification.errors.invalidDateTime,
-                ephemeral: true
-            });
-        }
+        const { day, month, year } = parsedDate;
+        const { hour, minute, second } = parsedTime;
 
         const nextTriggerDate = new Date(Date.UTC(year, month, day, hour, minute, second));
         const nextTriggerTimestamp = Math.floor(nextTriggerDate.getTime() / 1000);

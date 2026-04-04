@@ -18,29 +18,12 @@ const { allianceQueries, playerQueries, furnaceChangeQueries, nicknameChangeQuer
 const { PERMISSIONS } = require('../Settings/admin/permissions');
 const { createUniversalPaginationButtons, parsePaginationCustomId } = require('../Pagination/universalPagination');
 const { getFurnaceReadable } = require('./furnaceReadable');
-const { getUserInfo, assertUserMatches, handleError, hasPermission, updateComponentsV2AfterSeparator } = require('../utility/commonFunctions');
+const { getUserInfo, assertUserMatches, handleError, hasPermission, getAlliancesForUser, updateComponentsV2AfterSeparator } = require('../utility/commonFunctions');
 const { getEmojiMapForUser, getComponentEmoji } = require('../utility/emojis');
 
 const CHANGES_PER_PAGE = 10;
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
-
-/**
- * Gets alliances available to a user based on their permissions
- * @param {Object} adminData - Admin data from database
- * @returns {Array} Array of alliance objects
- */
-function getAlliancesForUser(adminData) {
-    if (adminData.is_owner || (adminData.permissions & PERMISSIONS.FULL_ACCESS)) {
-        return allianceQueries.getAllAlliances();
-    }
-    if (adminData.permissions & PERMISSIONS.PLAYER_MANAGEMENT) {
-        const assigned = JSON.parse(adminData.alliances || '[]');
-        if (assigned.length === 0) return [];
-        return assigned.map(id => allianceQueries.getAllianceById(id)).filter(Boolean);
-    }
-    return [];
-}
 
 /**
  * Gets change records for all players in an alliance

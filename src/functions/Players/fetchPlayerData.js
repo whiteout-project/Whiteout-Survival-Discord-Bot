@@ -581,15 +581,19 @@ class PlayerDataProcessor {
                 .setFooter({ text: originalMessage.author.tag, iconURL: originalMessage.author.displayAvatarURL() })
                 .setTimestamp();
 
-            embed.addFields([
-                {
-                    name: lang.players.addPlayer.content.statisticsField.name,
-                    value: lang.players.addPlayer.content.statisticsField.value
-                        .replace('{added}', added.length)
-                        .replace('{alreadyExist}', existing.length)
-                        .replace('{failed}', failed.length),
-                }
-            ]);
+            // Only show statistics for multiple players
+            const totalPlayers = added.length + existing.length + failed.length;
+            if (totalPlayers > 1) {
+                embed.addFields([
+                    {
+                        name: lang.players.addPlayer.content.statisticsField.name,
+                        value: lang.players.addPlayer.content.statisticsField.value
+                            .replace('{added}', added.length)
+                            .replace('{alreadyExist}', existing.length)
+                            .replace('{failed}', failed.length),
+                    }
+                ]);
+            }
 
             // If only 1 player was added, show their image
             if (added.length === 1 && added[0].image_url) {

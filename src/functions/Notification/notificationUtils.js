@@ -151,10 +151,55 @@ function calculateEmbedSize(embedData) {
     return total;
 }
 
+/**
+ * Parse and validate date string in DD/MM/YYYY format
+ * @param {string} dateStr - Date string to parse
+ * @returns {{ day: number, month: number, year: number } | null} Parsed date with 0-indexed month, or null if invalid
+ */
+function parseDateParts(dateStr) {
+    const dateParts = dateStr.split('/');
+    if (dateParts.length !== 3) return null;
+
+    const day = Number(dateParts[0]);
+    const month = Number(dateParts[1]);
+    const year = Number(dateParts[2]);
+
+    if (!Number.isInteger(day) || !Number.isInteger(month) || !Number.isInteger(year)) return null;
+    if (day < 1 || day > 31 || month < 1 || month > 12) return null;
+
+    const candidate = new Date(Date.UTC(year, month - 1, day));
+    if (candidate.getUTCFullYear() !== year || candidate.getUTCMonth() !== month - 1 || candidate.getUTCDate() !== day) {
+        return null;
+    }
+
+    return { day, month: month - 1, year };
+}
+
+/**
+ * Parse and validate time string in HH:MM:SS format
+ * @param {string} timeStr - Time string to parse
+ * @returns {{ hour: number, minute: number, second: number } | null} Parsed time, or null if invalid
+ */
+function parseTimeParts(timeStr) {
+    const timeParts = timeStr.split(':');
+    if (timeParts.length !== 3) return null;
+
+    const hour = Number(timeParts[0]);
+    const minute = Number(timeParts[1]);
+    const second = Number(timeParts[2]);
+
+    if (!Number.isInteger(hour) || !Number.isInteger(minute) || !Number.isInteger(second)) return null;
+    if (hour < 0 || hour > 23 || minute < 0 || minute > 59 || second < 0 || second > 59) return null;
+
+    return { hour, minute, second };
+}
+
 module.exports = {
     extractMentionTags,
     convertTagsToMentions,
     convertMentionsToTags,
     parseMentions,
-    calculateEmbedSize
+    calculateEmbedSize,
+    parseDateParts,
+    parseTimeParts
 };

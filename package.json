@@ -1,6 +1,6 @@
 {
   "name": "wosland-bot",
-  "version": "1.0.22",
+  "version": "1.0.23",
   "description": "whiteout survival discord bot",
   "main": "src/index.js",
   "scripts": {
@@ -19,7 +19,8 @@
     "node-cron": "^3.0.3",
     "node-fetch": "^2.7.0",
     "onnxruntime-node": "^1.23.2",
-    "sharp": "^0.32.0"
+    "sharp": "^0.32.0",
+    "systray2": "^2.1.4"
   },
   "keywords": [
     "discord",

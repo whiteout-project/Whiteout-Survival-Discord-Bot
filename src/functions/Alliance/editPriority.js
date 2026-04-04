@@ -1,5 +1,5 @@
 const { ButtonBuilder, ButtonStyle, EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder, StringSelectMenuOptionBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, LabelBuilder, ContainerBuilder, MessageFlags, TextDisplayBuilder, SeparatorBuilder, SeparatorSpacingSize } = require('discord.js');
-const { allianceQueries, playerQueries } = require('../utility/database');
+const { db, allianceQueries, playerQueries } = require('../utility/database');
 const { createUniversalPaginationButtons, parsePaginationCustomId } = require('../Pagination/universalPagination');
 const { PERMISSIONS } = require('../Settings/admin/permissions');
 const { getUserInfo, assertUserMatches, handleError, hasPermission, updateComponentsV2AfterSeparator } = require('../utility/commonFunctions');
@@ -32,7 +32,7 @@ async function handleEditPriorityButton(interaction) {
         const expectedUserId = interaction.customId.split('_')[2];
 
         // Check if the interaction user matches the expected user
-        if (!assertUserMatches(interaction, expectedUserId, lang)) return;
+        if (!(await assertUserMatches(interaction, expectedUserId, lang))) return;
 
 
         // Check permissions: must be owner, have FULL_ACCESS, or have ALLIANCE_MANAGEMENT
@@ -135,11 +135,16 @@ async function showPrioritySelectPage(interaction, alliances, page, lang) {
         .setCustomId(`select_alliance_priority_${interaction.user.id}_${page}`)
         .setPlaceholder(lang.alliance.editPriority.selectMenu.selectAlliance.placeholder);
 
+    // Batch fetch player counts (avoids N+1 query)
+    const allianceIds = currentAlliances.map(a => a.id);
+    const playerCountResults = allianceIds.length > 0
+        ? playerQueries.getPlayerCountsByAllianceIds(allianceIds)
+        : [];
+    const playerCountMap = new Map(playerCountResults.map(r => [r.alliance_id, r.player_count]));
+
     // Add alliance options
     for (const alliance of currentAlliances) {
-        // Get player count for this alliance
-        const playersInAlliance = playerQueries.getPlayersByAlliance(alliance.id);
-        const playerCount = playersInAlliance.length;
+        const playerCount = playerCountMap.get(alliance.id) || 0;
         const option = new StringSelectMenuOptionBuilder()
             .setLabel(`${alliance.name}`)
             .setValue(alliance.id.toString())
@@ -193,9 +198,9 @@ async function showPrioritySelectPage(interaction, alliances, page, lang) {
     const content = updateComponentsV2AfterSeparator(interaction, container);
 
     // Send or update the message
-    interaction.update({
+    await interaction.update({
         components: content,
-        messageFlags: MessageFlags.IsComponentsV2
+        flags: MessageFlags.IsComponentsV2
     });
 }
 
@@ -465,15 +470,19 @@ async function updateAlliancePriority(interaction, allianceId, newPriority) {
             newOrder.push({ id: allianceId, priority: newPriority });
         }
 
-        // Step 1: Set all alliances to temporary negative priorities
-        for (const alliance of allAlliances) {
-            allianceQueries.updateAlliancePriority(alliance.id, -(alliance.id));
-        }
+        // Atomically reorder priorities via transaction to prevent corruption on crash
+        const reorderPriorities = db.transaction(() => {
+            // Step 1: Set all alliances to temporary negative priorities
+            for (const a of allAlliances) {
+                allianceQueries.updateAlliancePriority(a.id, -(a.id));
+            }
 
-        // Step 2: Update all alliances to their new priorities
-        for (const item of newOrder) {
-            allianceQueries.updateAlliancePriority(item.id, item.priority);
-        }
+            // Step 2: Update all alliances to their new priorities
+            for (const item of newOrder) {
+                allianceQueries.updateAlliancePriority(item.id, item.priority);
+            }
+        });
+        reorderPriorities();
 
         // Get updated alliance data and show interface
         const updatedAlliance = allianceQueries.getAllianceById(allianceId);
@@ -504,7 +513,7 @@ async function handleBackToPrioritySelect(interaction) {
         const expectedUserId = interaction.customId.split('_')[4]; // back_to_priority_select_userId
 
         // Check if the interaction user matches the expected user
-        if (!assertUserMatches(interaction, expectedUserId, lang)) return;
+        if (!(await assertUserMatches(interaction, expectedUserId, lang))) return;
 
         // Get all alliances ordered by priority
         const alliances = allianceQueries.getAllAlliances();

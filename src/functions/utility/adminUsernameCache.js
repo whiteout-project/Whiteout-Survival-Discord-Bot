@@ -55,29 +55,27 @@ class AdminUsernameCache {
         }
 
         const allAdmins = adminQueries.getAllAdmins();
-        let successCount = 0;
-        let failCount = 0;
 
-        for (const admin of allAdmins) {
-            try {
-                const user = await this.client.users.fetch(admin.user_id);
-                this.cache.set(admin.user_id, {
-                    username: user.username,
-                    tag: user.tag,
-                    fetchedAt: new Date()
-                });
-                successCount++;
-            } catch (error) {
-                // Store placeholder for users that can't be fetched
-                this.cache.set(admin.user_id, {
-                    username: `User-${admin.user_id}`,
-                    tag: `Unknown User (${admin.user_id})`,
-                    fetchedAt: new Date(),
-                    fetchFailed: true
-                });
-                failCount++;
-            }
-        }
+        const results = await Promise.allSettled(
+            allAdmins.map(admin =>
+                this.client.users.fetch(admin.user_id)
+                    .then(user => {
+                        this.cache.set(admin.user_id, {
+                            username: user.username,
+                            tag: user.tag,
+                            fetchedAt: new Date()
+                        });
+                    })
+                    .catch(() => {
+                        this.cache.set(admin.user_id, {
+                            username: `User-${admin.user_id}`,
+                            tag: `Unknown User (${admin.user_id})`,
+                            fetchedAt: new Date(),
+                            fetchFailed: true
+                        });
+                    })
+            )
+        );
 
     }
 

@@ -1,8 +1,14 @@
 const path = require('path');
 const fs = require('fs').promises;
-const onnx = require('onnxruntime-node');
-const sharp = require('sharp');
 const { EmbedBuilder } = require('discord.js');
+
+// Lazy-loaded native modules — onnxruntime-node (~10-20s) and sharp (~3-8s) are heavy
+// to require at startup. They are loaded on first use instead.
+let onnx, sharp;
+function loadNativeDeps() {
+    if (!onnx) onnx = require('onnxruntime-node');
+    if (!sharp) sharp = require('sharp');
+}
 const { handleError } = require('../utility/commonFunctions');
 const {
     createProcess,
@@ -132,6 +138,9 @@ class CaptchaSolver {
     }
 
     async ensureReady() {
+        // Lazy-load heavy native dependencies on first use
+        loadNativeDeps();
+
         // Clear any existing idle timer
         if (this.idleTimer) {
             clearTimeout(this.idleTimer);
@@ -263,9 +272,27 @@ function fileExists(targetPath) {
         .catch(() => false);
 }
 
+const RESOLVER_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes — safety net for stale resolvers
+
 function registerProcessCompletion(processId) {
     return new Promise((resolve) => {
         moduleState.processCompletionResolvers.set(processId, resolve);
+
+        // Safety timeout: auto-resolve if the process never completes (deleted, killed, etc.)
+        const timeoutId = setTimeout(() => {
+            if (moduleState.processCompletionResolvers.has(processId)) {
+                moduleState.processCompletionResolvers.delete(processId);
+                resolve({
+                    success: false,
+                    results: [],
+                    error: `Process ${processId} completion timed out after 30 minutes`
+                });
+            }
+        }, RESOLVER_TIMEOUT_MS);
+
+        // Store the timeout so resolveProcessCompletion can clear it
+        moduleState.processCompletionTimeouts ??= new Map();
+        moduleState.processCompletionTimeouts.set(processId, timeoutId);
     });
 }
 
@@ -274,6 +301,13 @@ function resolveProcessCompletion(processId, payload) {
     if (resolver) {
         resolver(payload);
         moduleState.processCompletionResolvers.delete(processId);
+    }
+
+    // Clear the safety timeout
+    const timeoutId = moduleState.processCompletionTimeouts?.get(processId);
+    if (timeoutId) {
+        clearTimeout(timeoutId);
+        moduleState.processCompletionTimeouts.delete(processId);
     }
 }
 
@@ -406,7 +440,7 @@ async function authenticatePlayer(fid) {
             // Other error - shorter retry delay
             lastError = `Auth failed: ${response.data?.msg || 'Unknown error'} (HTTP ${response.status})`;
             if (attempt < API_CONFIG.MAX_RETRIES) {
-                // console.warn(`Player auth failed for FID ${fid} (attempt ${attempt}/${API_CONFIG.MAX_RETRIES}), retrying in ${API_CONFIG.RETRY_DELAY}ms...`);
+                devLog(`Auth failed for FID ${fid} (attempt ${attempt}/${API_CONFIG.MAX_RETRIES}), retrying in ${API_CONFIG.RETRY_DELAY}ms`);
                 await wait(API_CONFIG.RETRY_DELAY);
             }
 
@@ -536,7 +570,7 @@ function preFilterAlreadyRedeemed(redeemItems, giftCode) {
                         preFiltered: true
                     });
 
-                    // console.log(`Player ${item.id} already redeemed with status: ${previousStatus}`);
+                    devLog(`Player ${item.id} already redeemed with status: ${previousStatus}`);
                 }
             }
         }
@@ -754,7 +788,7 @@ async function handleVipTracking(playerId, giftCode, outcome, cachedGiftCodeData
 
         const player = playerQueries.getPlayer(playerId);
         if (!player) {
-            // console.warn(`Player ${playerId} not found for VIP tracking`);
+            devLog(`Player ${playerId} not found for VIP tracking`);
             return;
         }
 
@@ -1904,7 +1938,7 @@ async function updateRedeemProgressEmbed(processId, embedState, stats, context, 
 function buildRedeemProgressEmbed(stats, context) {
     const allianceName = context?.alliance?.name || 'Alliance';
     const state = context?.state || 'in_progress';
-    const progressBar = createProgressBar(stats.processed, stats.total);
+    const progressBar = createProgressBar(stats.processed, stats.total, 20, context?.processId || 0);
     const descriptionParts = [];
 
     if (context?.giftCode) {
@@ -1937,14 +1971,15 @@ function buildRedeemProgressEmbed(stats, context) {
         .setTimestamp(new Date());
 }
 
-function createProgressBar(processed, total, length = 20) {
+function createProgressBar(processed, total, length = 20, processId = 0) {
     const styles = [
         { filled: '█', empty: '░' },
         { filled: '▰', empty: '▱' },
         { filled: '▶', empty: '▷' },
         { filled: '★', empty: '☆' }
     ];
-    const style = styles[Math.floor(Math.random() * styles.length)];
+    // Use processId to pick a consistent style per process instead of randomizing on every update
+    const style = styles[processId % styles.length];
 
     if (total <= 0) {
         return style.empty.repeat(length) + ' 0%';

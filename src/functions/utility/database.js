@@ -379,6 +379,16 @@ try {
         console.error('Database migration: failed to add notif_auto_clean columns to settings', e);
     }
 
+    // Ensure auto_update column exists in settings (defaults to enabled)
+    try {
+        const settingsColsAU = db.prepare('PRAGMA table_info(settings)').all();
+        if (!settingsColsAU.some(c => c.name === 'auto_update')) {
+            db.exec('ALTER TABLE settings ADD COLUMN auto_update BOOLEAN DEFAULT 1');
+        }
+    } catch (e) {
+        console.error('Database migration: failed to add auto_update column to settings', e);
+    }
+
     // Create indexes for notification_messages table
     db.exec('CREATE INDEX IF NOT EXISTS idx_notif_msgs_trigger ON notification_messages (trigger_time)');
     db.exec('CREATE INDEX IF NOT EXISTS idx_notif_msgs_channel ON notification_messages (channel_id)');
@@ -580,6 +590,18 @@ const playerQueries = {
         FROM players 
         WHERE alliance_id IN (SELECT value FROM json_each(?)) AND exist < 3
         GROUP BY alliance_id
+    `),
+
+    getDistinctFurnaceLevels: db.prepare(`
+        SELECT DISTINCT furnace_level FROM players
+        WHERE exist < 3 AND alliance_id IN (SELECT value FROM json_each(?))
+        ORDER BY furnace_level ASC
+    `),
+
+    getDistinctStates: db.prepare(`
+        SELECT DISTINCT state FROM players
+        WHERE exist < 3 AND state IS NOT NULL AND alliance_id IN (SELECT value FROM json_each(?))
+        ORDER BY state ASC
     `),
 
     // Update player
@@ -953,7 +975,10 @@ const systemLogQueries = {
     getAllLogs: db.prepare('SELECT * FROM system_logs ORDER BY time DESC'),
 
     // Get recent logs (limit)
-    getRecentLogs: db.prepare('SELECT * FROM system_logs ORDER BY time DESC LIMIT ?')
+    getRecentLogs: db.prepare('SELECT * FROM system_logs ORDER BY time DESC LIMIT ?'),
+
+    // Delete logs older than a given ISO timestamp
+    deleteLogsOlderThan: db.prepare('DELETE FROM system_logs WHERE time < ?')
 };
 
 // Processes queries
@@ -1157,7 +1182,9 @@ const settingsQueries = {
     // Update notification auto-clean enabled
     updateNotifAutoClean: db.prepare('UPDATE settings SET notif_auto_clean = ? WHERE id = 1'),
     // Update notification auto-clean frequency (in seconds)
-    updateNotifAutoCleanFreq: db.prepare('UPDATE settings SET notif_auto_clean_freq = ? WHERE id = 1')
+    updateNotifAutoCleanFreq: db.prepare('UPDATE settings SET notif_auto_clean_freq = ? WHERE id = 1'),
+    // Update auto-update enabled/disabled
+    updateAutoUpdate: db.prepare('UPDATE settings SET auto_update = ? WHERE id = 1')
 };
 
 // Initialize settings on startup
@@ -1308,6 +1335,8 @@ module.exports = {
         getNonExistentPlayers: () => playerQueries.getNonExistentPlayers.all(),
         getPlayersByAllianceId: (allianceId) => playerQueries.getPlayersByAlliance.all(allianceId),
         getPlayerCountsByAllianceIds: (allianceIds) => playerQueries.getPlayerCountsByAllianceIds.all(JSON.stringify(allianceIds)),
+        getDistinctFurnaceLevels: (allianceIds) => playerQueries.getDistinctFurnaceLevels.all(JSON.stringify(allianceIds)).map(r => r.furnace_level),
+        getDistinctStates: (allianceIds) => playerQueries.getDistinctStates.all(JSON.stringify(allianceIds)).map(r => r.state),
         updatePlayer: (userId, nickname, furnaceLevel, state, imageUrl, allianceId, fid) =>
             playerQueries.updatePlayer.run(userId, nickname, furnaceLevel, state, imageUrl, allianceId, fid),
         updatePlayerAlliance: (fid, allianceId) => playerQueries.updatePlayerAlliance.run(allianceId, fid),
@@ -1485,7 +1514,8 @@ module.exports = {
             systemLogQueries.addLog.run(actionType, action, extraDetails, getCurrentTimestamp()),
         getLogsByActionType: (actionType) => systemLogQueries.getLogsByActionType.all(actionType),
         getAllLogs: () => systemLogQueries.getAllLogs.all(),
-        getRecentLogs: (limit) => systemLogQueries.getRecentLogs.all(limit)
+        getRecentLogs: (limit) => systemLogQueries.getRecentLogs.all(limit),
+        deleteLogsOlderThan: (isoTimestamp) => systemLogQueries.deleteLogsOlderThan.run(isoTimestamp)
     },
     processQueries: {
         ...processQueries,
