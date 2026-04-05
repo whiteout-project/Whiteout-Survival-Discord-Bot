@@ -638,7 +638,7 @@ async function applyUpdate() {
         const pkgAfter = fs.existsSync(pkgPath) ? fs.readFileSync(pkgPath, 'utf8') : '';
         if (pkgBefore !== pkgAfter) {
             console.log('\n[UPDATE] Dependencies changed - installing new packages...');
-            const ok = await robustNpmInstall(__dirname, '[UPDATE]', { preferCleanInstall: true });
+            const ok = await robustNpmInstall(__dirname, '[UPDATE]', { isUpdate: true });
             if (!ok) {
                 console.warn('[UPDATE] Some packages may not have installed correctly. Run "npm install --omit=optional" if issues persist.');
             }
@@ -886,6 +886,30 @@ function isLowMemoryEnvironment() {
     return getEffectiveTotalMemMb() < 1024;
 }
 
+/**
+ * Returns available disk space in MB for the given directory.
+ * Works on Linux containers (reads df), Windows (wmic), and macOS (df).
+ * @param {string} dir - Directory to check disk space for
+ * @returns {number|null} Available MB, or null if detection fails
+ */
+function getAvailableDiskSpaceMb(dir) {
+    try {
+        if (process.platform === 'win32') {
+            const drive = path.resolve(dir).slice(0, 2);
+            const output = execSync(`wmic logicaldisk where "DeviceID='${drive}'" get FreeSpace /value`, { encoding: 'utf8' });
+            const match = output.match(/FreeSpace=(\d+)/);
+            if (match) return Math.floor(parseInt(match[1], 10) / 1024 / 1024);
+        } else {
+            const output = execSync(`df -Pm "${dir}" 2>/dev/null | tail -1`, { encoding: 'utf8' });
+            const columns = output.trim().split(/\s+/);
+            if (columns.length >= 4) return parseInt(columns[3], 10);
+        }
+    } catch {
+        // Detection failed -- return null so callers can fall through gracefully
+    }
+    return null;
+}
+
 
 // Config entries written to .npmrc before every install.
 // onnxruntime-node reads these to skip the ~500 MB CUDA provider download.
@@ -958,13 +982,18 @@ async function checkDepsInstalled(cwd, env) {
 
 /**
  * Runs npm install (or npm ci for clean installs) with automatic retry.
+ * For updates, uses `npm install` (incremental) to avoid re-downloading everything.
+ * For fresh installs, uses `npm ci` when lockfile exists for deterministic installs.
+ * If disk space is too low for `npm ci`, falls back to `npm install` automatically.
+ * Cleans npm cache after successful install to reclaim disk space.
  * @param {string} cwd     - Working directory (where package.json lives)
  * @param {string} context - Log prefix, e.g. '[PREFLIGHT]'
  * @param {Object} [options]
- * @param {boolean} [options.preferCleanInstall=false] - Use `npm ci` when package-lock.json exists for deterministic installs
+ * @param {boolean} [options.preferCleanInstall=false] - Use `npm ci` when package-lock.json exists
+ * @param {boolean} [options.isUpdate=false] - When true, forces `npm install` (incremental) instead of `npm ci`
  * @returns {Promise<boolean>}
  */
-async function robustNpmInstall(cwd, context, { preferCleanInstall = false } = {}) {
+async function robustNpmInstall(cwd, context, { preferCleanInstall = false, isUpdate = false } = {}) {
     const MAX_RETRIES = 3;
     const RETRY_DELAY_MS = 5000;
     const heapMb = npmHeapMb();
@@ -989,7 +1018,22 @@ async function robustNpmInstall(cwd, context, { preferCleanInstall = false } = {
     };
 
     const hasLockfile = fs.existsSync(path.join(cwd, 'package-lock.json'));
-    const useCleanInstall = preferCleanInstall && hasLockfile;
+
+    // Determine npm command: updates always use `install` (incremental).
+    // Fresh installs prefer `ci` but fall back to `install` when disk is tight.
+    let useCleanInstall = !isUpdate && preferCleanInstall && hasLockfile;
+
+    // Disk space safety: npm ci deletes node_modules and re-downloads everything,
+    // needing ~600 MB free. If disk is tight, fall back to npm install (incremental).
+    const MIN_DISK_FOR_CI_MB = 600;
+    if (useCleanInstall) {
+        const availableDiskMb = getAvailableDiskSpaceMb(cwd);
+        if (availableDiskMb !== null && availableDiskMb < MIN_DISK_FOR_CI_MB) {
+            console.log(`${context} Low disk space detected (${availableDiskMb} MB free). Using incremental npm install instead of npm ci to save space.`);
+            useCleanInstall = false;
+        }
+    }
+
     const npmCommand = useCleanInstall ? 'ci' : 'install';
     const BASE_FLAGS = [npmCommand, '--omit=optional', '--no-audit', '--no-fund'];
     if (!useCleanInstall) BASE_FLAGS.push('--prefer-offline');
@@ -998,18 +1042,21 @@ async function robustNpmInstall(cwd, context, { preferCleanInstall = false } = {
         console.log(`${context} Low-memory machine detected (${totalMb} MB total, ${freeMb} MB free, npm heap: ${heapMb} MB). Install may take multiple attempts...`);
     }
 
+    let installSucceeded = false;
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
         try {
             console.log(`${context} Running npm ${npmCommand} (attempt ${attempt}/${MAX_RETRIES}, heap: ${heapMb} MB)...`);
             await spawnAsync('npm', BASE_FLAGS, { cwd, stdio: 'inherit', env: npmEnv });
-            console.log(`${context} Dependencies installed successfully.\n`);
-            return true;
+            console.log(`${context} Dependencies installed successfully.`);
+            installSucceeded = true;
+            break;
         } catch (err) {
             console.warn(`${context} npm ${npmCommand} attempt ${attempt} failed: ${err.message}`);
 
             if (await checkDepsInstalled(cwd, npmEnv)) {
-                console.log(`${context} Install was interrupted but all packages are verified present. Continuing...\n`);
-                return true;
+                console.log(`${context} Install was interrupted but all packages are verified present.`);
+                installSucceeded = true;
+                break;
             }
 
             if (attempt < MAX_RETRIES) {
@@ -1020,9 +1067,21 @@ async function robustNpmInstall(cwd, context, { preferCleanInstall = false } = {
         }
     }
 
-    // Final presence check after all retries are exhausted.
-    if (await checkDepsInstalled(cwd, npmEnv)) {
-        console.log(`${context} Packages verified present after final attempt. Continuing...\n`);
+    if (!installSucceeded && await checkDepsInstalled(cwd, npmEnv)) {
+        console.log(`${context} Packages verified present after final attempt.`);
+        installSucceeded = true;
+    }
+
+    // Clean npm cache to reclaim disk space (especially important on small containers)
+    try {
+        console.log(`${context} Cleaning npm cache to free disk space...`);
+        execSync('npm cache clean --force', { cwd, stdio: 'ignore', env: npmEnv });
+    } catch {
+        // Cache cleanup is best-effort -- don't fail the install over it
+    }
+
+    if (installSucceeded) {
+        console.log();
         return true;
     }
 
