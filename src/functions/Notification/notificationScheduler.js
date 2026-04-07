@@ -22,6 +22,17 @@ function parseMentions(mentionJson) {
 }
 
 /**
+ * Replace {time} placeholders with Discord relative timestamps
+ * @param {string} text - Text containing {time} placeholders
+ * @param {number} scheduledTime - The original scheduled trigger time (Unix seconds)
+ * @returns {string} Text with {time} replaced by Discord timestamp format
+ */
+function replaceTimePlaceholder(text, scheduledTime) {
+    if (!text || !text.includes('{time}')) return text;
+    return text.replace(/{time}/g, `<t:${Math.floor(scheduledTime)}:R>`);
+}
+
+/**
  * Convert raw @tag placeholders to their configured Discord mention format
  * @param {string} text - The text containing @tag placeholders
  * @param {object} mentions - Parsed mention object from notification.mention
@@ -437,16 +448,22 @@ class NotificationScheduler {
                 return;
             }
 
-            // Build message content with mentions
+            // Build message content with mentions and time placeholders
             const mentions = parseMentions(currentNotification.mention);
             const rawMessageContent = currentNotification.message_content;
-            const messageContent = convertTagsToMentions(rawMessageContent, mentions, 'message');
+            const messageContent = replaceTimePlaceholder(
+                convertTagsToMentions(rawMessageContent, mentions, 'message'),
+                scheduledTime
+            );
             let embed = null;
 
             // Create embed if enabled
             if (currentNotification.embed_toggle) {
                 const rawDescription = currentNotification.description;
-                const embedDescription = convertTagsToMentions(rawDescription, mentions, 'description');
+                const embedDescription = replaceTimePlaceholder(
+                    convertTagsToMentions(rawDescription, mentions, 'description'),
+                    scheduledTime
+                );
 
                 embed = new EmbedBuilder()
                     .setColor(currentNotification.color || '#0099ff')
@@ -473,7 +490,10 @@ class NotificationScheduler {
                             fields.forEach((field, index) => {
                                 if (field.name && field.value) {
                                     const fieldComponent = `field_${index}`;
-                                    const fieldValue = convertTagsToMentions(field.value, mentions, fieldComponent);
+                                    const fieldValue = replaceTimePlaceholder(
+                                        convertTagsToMentions(field.value, mentions, fieldComponent),
+                                        scheduledTime
+                                    );
                                     embed.addFields({ name: field.name, value: fieldValue, inline: field.inline || false });
                                 }
                             });

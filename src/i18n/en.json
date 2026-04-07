@@ -1499,7 +1499,7 @@
 				}
 			},
 			"defaultValues": {
-				"messageContent": "Tips:\nTo mention a user or role, use @tag in the message content.\nTo mention multiple targets, add numbers to the tag (for example: @tag1, @tag2).",
+				"messageContent": "Tips:\nTo mention a user or role, use @tag in the message content.\nTo mention multiple targets, add numbers to the tag (for example: @tag1, @tag2).\nUse {time} to insert a live countdown that updates automatically.",
 				"embedTitle": "Notification Title",
 				"embedDescription": "This is the description of the notification.",
 				"embedColor": "#0099ff",

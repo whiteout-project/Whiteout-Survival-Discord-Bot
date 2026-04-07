@@ -1499,7 +1499,7 @@
                 }
             },
             "defaultValues": {
-                "messageContent": "Conseils:\nPour mentionner un utilisateur ou un rôle, utilisez @tag dans le contenu du message.\nPour mentionner plusieurs cibles, ajoutez des numéros au tag (par exemple : @tag1, @tag2).",
+                "messageContent": "Conseils:\nPour mentionner un utilisateur ou un rôle, utilisez @tag dans le contenu du message.\nPour mentionner plusieurs cibles, ajoutez des numéros au tag (par exemple : @tag1, @tag2).\nUtilisez {time} pour insérer un compte à rebours en direct qui se met à jour automatiquement.",
                 "embedTitle": "Titre de la notification",
                 "embedDescription": "Ceci est la description de la notification.",
                 "embedColor": "#0099ff",

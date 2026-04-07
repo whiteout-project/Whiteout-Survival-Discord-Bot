@@ -364,6 +364,12 @@ async function showNotificationEditPanel(interaction, notification, lang, update
         // Parse mentions for preview
         const mentions = parseMentions(notification.mention);
 
+        // Build time placeholder for preview
+        const triggerTimestamp = notification.next_trigger && notification.next_trigger > 0
+            ? Math.floor(notification.next_trigger)
+            : Math.floor(Date.now() / 1000);
+        const timePreview = `<t:${triggerTimestamp}:R>`;
+
         // Get raw message content
         const rawMessageContent = notification.message_content || null;
 
@@ -375,7 +381,7 @@ async function showNotificationEditPanel(interaction, notification, lang, update
 
             if (notification.title) notificationEmbed.setTitle(notification.title);
             if (notification.description) {
-                const displayDescription = convertTagsToMentions(notification.description, mentions, 'description');
+                const displayDescription = convertTagsToMentions(notification.description, mentions, 'description').replace(/{time}/g, timePreview);
                 notificationEmbed.setDescription(displayDescription);
             }
             if (notification.image_url) notificationEmbed.setImage(notification.image_url);
@@ -389,7 +395,7 @@ async function showNotificationEditPanel(interaction, notification, lang, update
                     if (Array.isArray(fields) && fields.length > 0) {
                         fields.forEach((field, index) => {
                             if (field.name && field.value) {
-                                const displayValue = convertTagsToMentions(field.value, mentions, `field_${index}`);
+                                const displayValue = convertTagsToMentions(field.value, mentions, `field_${index}`).replace(/{time}/g, timePreview);
                                 notificationEmbed.addFields({ name: field.name, value: displayValue, inline: field.inline || false });
                             }
                         });
@@ -479,7 +485,7 @@ async function showNotificationEditPanel(interaction, notification, lang, update
             embeds.push(notificationEmbed);
         }
 
-        const cleanMessageContent = rawMessageContent ? convertTagsToMentions(rawMessageContent, mentions, 'message') : null;
+        const cleanMessageContent = rawMessageContent ? convertTagsToMentions(rawMessageContent, mentions, 'message').replace(/{time}/g, timePreview) : null;
 
         // Update existing message or send new one
         if (updateExisting && interaction.message) {

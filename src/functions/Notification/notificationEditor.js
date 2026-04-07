@@ -324,8 +324,14 @@ async function showEmbedEditor(interaction, notificationId, lang, useUpdate = tr
 
     const mentions = parseMentions(notification.mention);
 
+    // Build time placeholder for preview
+    const triggerTimestamp = notification.next_trigger && notification.next_trigger > 0
+        ? Math.floor(notification.next_trigger)
+        : Math.floor(Date.now() / 1000);
+    const timePreview = `<t:${triggerTimestamp}:R>`;
+
     const rawMessageContent = notification.message_content || lang.notification.notificationEditor.defaultValues.messageContent;
-    const messageContent = convertTagsToMentions(rawMessageContent, mentions, 'message');
+    const messageContent = convertTagsToMentions(rawMessageContent, mentions, 'message').replace(/{time}/g, timePreview);
 
     const editorUserId = userIdOverride || (interaction && interaction.user && interaction.user.id) || interaction?.user?.id || 'unknown';
 
@@ -400,7 +406,7 @@ async function showEmbedEditor(interaction, notificationId, lang, useUpdate = tr
 
     // Description: show if has value OR helperMode is on (show default visually)
     if (hasDescriptionValue) {
-        const displayDescription = convertTagsToMentions(notification.description, mentions, 'description');
+        const displayDescription = convertTagsToMentions(notification.description, mentions, 'description').replace(/{time}/g, timePreview);
         embed.setDescription(displayDescription);
     } else if (helperMode) {
         embed.setDescription(lang.notification.notificationEditor.defaultValues.embedDescription);
@@ -444,7 +450,7 @@ async function showEmbedEditor(interaction, notificationId, lang, useUpdate = tr
             customFieldsCount = fields.length;
             fields = fields.map((field, index) => ({
                 name: field.name,
-                value: convertTagsToMentions(field.value, mentions, `field_${index}`),
+                value: convertTagsToMentions(field.value, mentions, `field_${index}`).replace(/{time}/g, timePreview),
                 inline: field.inline
             }));
             if (fields.length > 0) {

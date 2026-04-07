@@ -1200,8 +1200,14 @@ async function showFinalConfirmation(interaction, notificationId, channel, lang)
     // Parse mentions for preview
     const mentions = parseMentions(notification.mention);
 
+    // Build time placeholder for preview
+    const triggerTimestamp = notification.next_trigger && notification.next_trigger > 0
+        ? Math.floor(notification.next_trigger)
+        : Math.floor(Date.now() / 1000);
+    const timePreview = `<t:${triggerTimestamp}:R>`;
+
     const rawMessageContent = notification.message_content || null;
-    const messageContent = convertTagsToMentions(rawMessageContent, mentions, 'message');
+    const messageContent = convertTagsToMentions(rawMessageContent, mentions, 'message')?.replace(/{time}/g, timePreview) ?? null;
 
     let notificationEmbed = null;
     if (notification.embed_toggle) {
@@ -1210,7 +1216,7 @@ async function showFinalConfirmation(interaction, notificationId, channel, lang)
 
         if (notification.title) notificationEmbed.setTitle(notification.title);
         if (notification.description) {
-            const displayDescription = convertTagsToMentions(notification.description, mentions, 'description');
+            const displayDescription = convertTagsToMentions(notification.description, mentions, 'description').replace(/{time}/g, timePreview);
             notificationEmbed.setDescription(displayDescription);
         }
         if (notification.image_url) notificationEmbed.setImage(notification.image_url);
@@ -1224,7 +1230,7 @@ async function showFinalConfirmation(interaction, notificationId, channel, lang)
                 if (Array.isArray(fields) && fields.length > 0) {
                     fields.forEach((field, index) => {
                         if (field.name && field.value) {
-                            const displayValue = convertTagsToMentions(field.value, mentions, `field_${index}`);
+                            const displayValue = convertTagsToMentions(field.value, mentions, `field_${index}`).replace(/{time}/g, timePreview);
                             notificationEmbed.addFields({ name: field.name, value: displayValue, inline: field.inline || false });
                         }
                     });
