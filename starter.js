@@ -5,12 +5,22 @@ const os = require('os');
 const { spawn, execSync } = require('child_process');
 
 // ============================================================
+// DOCKER DETECTION
+// Set early so all downstream code can check global.isDocker
+// ============================================================
+const isDocker = !!(process.env.DOCKER_CONTAINER || (function () {
+    try { return fs.existsSync('/.dockerenv'); } catch { return false; }
+})());
+global.isDocker = isDocker;
+
+// ============================================================
 // PARENT / CHILD WRAPPER
 // When running as the parent (no STARTER_CHILD env), spawn self
 // as a child process. This allows full restarts & self-updates
 // without killing the parent — the parent just respawns the child.
+// Docker handles restarts via restart policy -- skip the wrapper.
 // ============================================================
-if (!process.env.STARTER_CHILD) {
+if (!isDocker && !process.env.STARTER_CHILD) {
     // Detect old parent (pre-1.0.23): it sets FULL_SELF_UPDATE but not STARTER_CHILD.
     // Let the bot start so ready.js can DM the owner, then exit.
     if (process.env.FULL_SELF_UPDATE === '1') {
@@ -1038,6 +1048,17 @@ async function robustNpmInstall(cwd, context, { preferCleanInstall = false, isUp
     const BASE_FLAGS = [npmCommand, '--omit=optional', '--no-audit', '--no-fund'];
     if (!useCleanInstall) BASE_FLAGS.push('--prefer-offline');
 
+    // For updates (incremental install), prune orphaned packages from previous versions
+    // before installing. npm install is supposed to do this but sometimes leaves leftovers.
+    if (isUpdate && !useCleanInstall) {
+        try {
+            console.log(`${context} Pruning orphaned packages...`);
+            execSync('npm prune --omit=optional --no-audit --no-fund', { cwd, stdio: 'inherit', env: npmEnv });
+        } catch {
+            // Prune failure is non-critical -- proceed with install
+        }
+    }
+
     if (isLowMemoryEnvironment()) {
         console.log(`${context} Low-memory machine detected (${totalMb} MB total, ${freeMb} MB free, npm heap: ${heapMb} MB). Install may take multiple attempts...`);
     }
@@ -1660,6 +1681,11 @@ async function restartBot() {
         // This ensures starter.js changes are picked up from disk.
         if (process.env.FULL_SELF_UPDATE === '1') {
             process.exit(42);
+        }
+
+        // Docker: exit cleanly -- the container restart policy handles the respawn
+        if (global.isDocker) {
+            process.exit(0);
         }
 
         // Fallback: in-process restart (direct execution without parent wrapper)

@@ -1,0 +1,17 @@
+services:
+  bot:
+    image: ghcr.io/whiteout-project/whiteout-survival-discord-bot:latest
+    container_name: woslandjs
+    restart: unless-stopped
+    volumes:
+      # Persistent data -- survives container restarts and updates
+      - ./data/database:/app/src/database
+      - ./data/plugins:/app/plugins
+      # Docker socket for self-update capability
+      - /var/run/docker.sock:/var/run/docker.sock
+    env_file:
+      # Create a .env file with TOKEN=your_discord_bot_token
+      - .env
+    environment:
+      - BOT_CONTAINER=woslandjs
+      - BOT_IMAGE=ghcr.io/whiteout-project/whiteout-survival-discord-bot

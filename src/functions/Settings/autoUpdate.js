@@ -16,9 +16,176 @@ const { getComponentEmoji, getEmojiMapForUser, replaceEmojiPlaceholders } = requ
 
 const PENDING_UPDATE_PATH = path.join(__dirname, '..', '..', 'temp', 'pending_update.json');
 const AUTO_UPDATE_INTERVAL_MS = 5 * 60 * 1000;
+const DOCKER_SOCKET = '/var/run/docker.sock';
 
 let autoUpdateInterval = null;
 let lastNotifiedVersion = null;
+
+// -------------------------------------------------------
+// Docker Engine API (direct Unix socket communication)
+// -------------------------------------------------------
+
+/**
+ * Checks whether the Docker socket is available for self-hosted Docker updates.
+ * @returns {boolean}
+ */
+function hasDockerSocket() {
+    return global.isDocker && fs.existsSync(DOCKER_SOCKET);
+}
+
+/**
+ * Makes an HTTP request to the Docker Engine API via Unix socket.
+ * @param {string} method - HTTP method
+ * @param {string} apiPath - API path (e.g. /containers/json)
+ * @param {object|null} body - JSON body for POST/PUT
+ * @returns {Promise<{statusCode: number, data: any}>}
+ */
+function dockerApi(method, apiPath, body = null) {
+    const httpModule = require('http');
+    return new Promise((resolve, reject) => {
+        const options = {
+            socketPath: DOCKER_SOCKET,
+            path: apiPath,
+            method,
+            headers: {},
+            timeout: 30000
+        };
+
+        if (body) {
+            const bodyStr = JSON.stringify(body);
+            options.headers['Content-Type'] = 'application/json';
+            options.headers['Content-Length'] = Buffer.byteLength(bodyStr);
+        }
+
+        const req = httpModule.request(options, (res) => {
+            const chunks = [];
+            res.on('data', chunk => chunks.push(chunk));
+            res.on('end', () => {
+                const raw = Buffer.concat(chunks).toString();
+                let data;
+                try { data = JSON.parse(raw); } catch { data = raw; }
+                resolve({ statusCode: res.statusCode, data });
+            });
+        });
+
+        req.on('error', reject);
+        req.on('timeout', () => { req.destroy(); reject(new Error('Docker API timeout')); });
+        if (body) req.write(JSON.stringify(body));
+        req.end();
+    });
+}
+
+/**
+ * Pulls an image via Docker Engine API (consumes the streaming response).
+ * @param {string} image - Image name without tag
+ * @param {string} tag - Image tag
+ * @returns {Promise<boolean>}
+ */
+function pullDockerImage(image, tag = 'latest') {
+    const httpModule = require('http');
+    return new Promise((resolve, reject) => {
+        const encodedImage = encodeURIComponent(image);
+        const encodedTag = encodeURIComponent(tag);
+
+        const req = httpModule.request({
+            socketPath: DOCKER_SOCKET,
+            path: `/images/create?fromImage=${encodedImage}&tag=${encodedTag}`,
+            method: 'POST',
+            timeout: 120000
+        }, (res) => {
+            res.on('data', () => {});
+            res.on('end', () => {
+                if (res.statusCode === 200) resolve(true);
+                else reject(new Error(`Image pull failed with HTTP ${res.statusCode}`));
+            });
+        });
+
+        req.on('error', reject);
+        req.on('timeout', () => { req.destroy(); reject(new Error('Image pull timeout')); });
+        req.end();
+    });
+}
+
+/**
+ * Checks for a Docker image update by comparing the running container's
+ * image ID against the latest pulled image ID.
+ * @returns {Promise<{available: boolean, current: string|null, latest: string|null}>}
+ */
+async function checkDockerUpdate() {
+    const botContainer = process.env.BOT_CONTAINER || 'woslandjs';
+    const botImage = process.env.BOT_IMAGE || 'ghcr.io/whiteout-project/whiteout-survival-discord-bot';
+
+    const { statusCode: cStatus, data: cData } = await dockerApi('GET', `/containers/${botContainer}/json`);
+    if (cStatus !== 200) throw new Error(`Cannot inspect container: HTTP ${cStatus}`);
+
+    const currentImageId = cData.Image;
+    const currentVersion = cData.Config?.Labels?.['org.opencontainers.image.version'] || null;
+
+    await pullDockerImage(botImage, 'latest');
+
+    const encodedRef = encodeURIComponent(`${botImage}:latest`);
+    const { statusCode: iStatus, data: iData } = await dockerApi('GET', `/images/${encodedRef}/json`);
+    if (iStatus !== 200) throw new Error(`Cannot inspect image: HTTP ${iStatus}`);
+
+    const latestImageId = iData.Id;
+    const latestVersion = iData.Config?.Labels?.['org.opencontainers.image.version'] || null;
+
+    return {
+        available: currentImageId !== null && latestImageId !== null && currentImageId !== latestImageId,
+        current: currentVersion,
+        latest: latestVersion || currentVersion
+    };
+}
+
+/**
+ * Pulls the latest image, stops the old container, and recreates it
+ * with the same configuration but the new image.
+ * @returns {Promise<{success: boolean, message: string}>}
+ */
+async function applyDockerUpdate() {
+    const botContainer = process.env.BOT_CONTAINER || 'woslandjs';
+    const botImage = process.env.BOT_IMAGE || 'ghcr.io/whiteout-project/whiteout-survival-discord-bot';
+
+    console.log('[AUTO-UPDATE] Pulling latest Docker image...');
+    await pullDockerImage(botImage, 'latest');
+
+    console.log('[AUTO-UPDATE] Inspecting current container...');
+    const { statusCode: inspectStatus, data: containerInfo } = await dockerApi('GET', `/containers/${botContainer}/json`);
+    if (inspectStatus !== 200) throw new Error(`Failed to inspect container: HTTP ${inspectStatus}`);
+
+    console.log('[AUTO-UPDATE] Stopping bot container...');
+    const { statusCode: stopStatus } = await dockerApi('POST', `/containers/${botContainer}/stop`);
+    if (stopStatus !== 204 && stopStatus !== 304) throw new Error(`Failed to stop container: HTTP ${stopStatus}`);
+
+    console.log('[AUTO-UPDATE] Removing old container...');
+    const { statusCode: rmStatus } = await dockerApi('DELETE', `/containers/${botContainer}`);
+    if (rmStatus !== 204) throw new Error(`Failed to remove container: HTTP ${rmStatus}`);
+
+    const createBody = {
+        ...containerInfo.Config,
+        Image: `${botImage}:latest`,
+        HostConfig: containerInfo.HostConfig,
+        NetworkingConfig: { EndpointsConfig: {} }
+    };
+
+    for (const [networkName, networkConfig] of Object.entries(containerInfo.NetworkSettings?.Networks || {})) {
+        createBody.NetworkingConfig.EndpointsConfig[networkName] = {
+            IPAMConfig: networkConfig.IPAMConfig,
+            Aliases: networkConfig.Aliases
+        };
+    }
+
+    console.log('[AUTO-UPDATE] Creating updated container...');
+    const { statusCode: createStatus, data: createData } = await dockerApi('POST', `/containers/create?name=${botContainer}`, createBody);
+    if (createStatus !== 201) throw new Error(`Failed to create container: HTTP ${createStatus} - ${JSON.stringify(createData)}`);
+
+    console.log('[AUTO-UPDATE] Starting updated container...');
+    const { statusCode: startStatus } = await dockerApi('POST', `/containers/${createData.Id}/start`);
+    if (startStatus !== 204 && startStatus !== 304) throw new Error(`Failed to start container: HTTP ${startStatus}`);
+
+    console.log('[AUTO-UPDATE] Bot container updated and started.');
+    return { success: true, message: 'Update applied successfully.' };
+}
 
 /**
  * Creates an auto-update button for the settings panel
@@ -167,9 +334,19 @@ async function handleAutoUpdateCheck(interaction) {
             ? global.getLocalVersion()
             : '?.?.?';
 
-        // Check for updates
+        // Check for updates -- use Docker Engine API or GitHub API
         let updateInfo = null;
-        if (typeof global.checkForUpdates === 'function') {
+        if (hasDockerSocket()) {
+            try {
+                const status = await checkDockerUpdate();
+                updateInfo = {
+                    available: status.available,
+                    latest: status.latest || currentVersion
+                };
+            } catch (error) {
+                console.error('[AUTO-UPDATE] Docker update check failed:', error.message);
+            }
+        } else if (typeof global.checkForUpdates === 'function') {
             updateInfo = await global.checkForUpdates();
         }
 
@@ -197,7 +374,6 @@ async function handleAutoUpdateCheck(interaction) {
                 `${settingsLang.content.currentVersion.replace('{currentVersion}', currentVersion)}\n` +
                 `${settingsLang.content.latestVersion.replace('{latestVersion}', updateInfo.latest)}\n`;
 
-            // Add update button
             const applyButton = new ButtonBuilder()
                 .setCustomId(`auto_update_apply_${interaction.user.id}`)
                 .setLabel(settingsLang.buttons.applyUpdate)
@@ -307,6 +483,67 @@ async function handleAutoUpdateApply(interaction) {
         });
 
         // Apply the update
+        let result;
+        if (hasDockerSocket()) {
+            // Docker mode: pull new image, stop this container, recreate with new image
+            try {
+                // Show success message before Docker kills this container
+                const successText = `${settingsLang.content.title}\n${settingsLang.content.success}`;
+
+                const successContainer = new ContainerBuilder()
+                    .setAccentColor(0x2ecc71)
+                    .addTextDisplayComponents(
+                        new TextDisplayBuilder().setContent(successText)
+                    );
+
+                const successContent = updateComponentsV2AfterSeparator(interaction, [successContainer]);
+
+                await interaction.editReply({
+                    components: successContent,
+                    flags: MessageFlags.IsComponentsV2
+                });
+
+                // Save pending update reference for post-restart message
+                try {
+                    fs.writeFileSync(PENDING_UPDATE_PATH, JSON.stringify({
+                        channelId: interaction.channelId,
+                        messageId: interaction.message.id,
+                        userId: interaction.user.id
+                    }));
+                } catch (writeError) {
+                    console.error('Failed to save pending update reference:', writeError.message);
+                }
+
+                // Pull + recreate -- this will kill this container
+                result = await applyDockerUpdate();
+                if (!result.success) {
+                    throw new Error(result.message || 'Docker update failed');
+                }
+                // If we reach here, the container is about to be replaced
+                return;
+            } catch (error) {
+                // Show failure if Docker update failed
+                const failText =
+                    `${settingsLang.content.title}\n` +
+                    `${settingsLang.content.failed}\n` +
+                    `${error.message}`;
+
+                const failContainer = new ContainerBuilder()
+                    .setAccentColor(0xff0000)
+                    .addTextDisplayComponents(
+                        new TextDisplayBuilder().setContent(failText)
+                    );
+
+                const failContent = updateComponentsV2AfterSeparator(interaction, [failContainer]);
+
+                await interaction.editReply({
+                    components: failContent,
+                    flags: MessageFlags.IsComponentsV2
+                });
+                return;
+            }
+        }
+
         if (typeof global.applyUpdate !== 'function') {
             await interaction.followUp({
                 content: settingsLang.errors.notAvailable,
@@ -315,13 +552,14 @@ async function handleAutoUpdateApply(interaction) {
             return;
         }
 
-        const result = await global.applyUpdate();
+        result = await global.applyUpdate();
 
         if (result.success) {
             const hasParentWrapper = process.env.FULL_SELF_UPDATE === '1';
 
             // Show appropriate success message
-            const successText = hasParentWrapper
+            const isAutoRestart = hasParentWrapper || global.isDocker;
+            const successText = isAutoRestart
                 ? `${settingsLang.content.title}\n${settingsLang.content.success}`
                 : `${settingsLang.content.title}\n${settingsLang.content.description.stopping}`;
 
@@ -338,8 +576,8 @@ async function handleAutoUpdateApply(interaction) {
                 flags: MessageFlags.IsComponentsV2
             });
 
-            if (hasParentWrapper) {
-                // Parent wrapper available — save message ref for post-restart update
+            if (hasParentWrapper || global.isDocker) {
+                // Parent wrapper or Docker -- save message ref for post-restart update
                 try {
                     fs.writeFileSync(PENDING_UPDATE_PATH, JSON.stringify({
                         channelId: interaction.channelId,
@@ -649,25 +887,66 @@ function startAutoUpdateScheduler(client) {
 
     autoUpdateInterval = setInterval(async () => {
         try {
-            if (typeof global.checkForUpdates !== 'function') return;
+            let updateAvailable = false;
+            let latestVersion = null;
+            let releaseBody = null;
+            let releaseAssets = null;
 
-            const updateInfo = await global.checkForUpdates();
-            if (!updateInfo?.available) return;
+            if (hasDockerSocket()) {
+                // Docker mode: check via Docker Engine API
+                try {
+                    const status = await checkDockerUpdate();
+                    updateAvailable = status.available;
+                    latestVersion = status.latest;
+                } catch (error) {
+                    console.error('[AUTO-UPDATE] Docker update check failed:', error.message);
+                    return;
+                }
+            } else {
+                // Non-Docker: check GitHub directly
+                if (typeof global.checkForUpdates !== 'function') return;
+                const updateInfo = await global.checkForUpdates();
+                if (!updateInfo?.available) return;
+                updateAvailable = true;
+                latestVersion = updateInfo.latest;
+                releaseBody = updateInfo.body;
+                releaseAssets = updateInfo.assets;
+            }
+
+            if (!updateAvailable || !latestVersion) return;
 
             const settings = settingsQueries.getSettings.get();
             const isAutoUpdateEnabled = settings?.auto_update ?? 1;
 
             if (!isAutoUpdateEnabled) {
-                if (updateInfo.latest === lastNotifiedVersion) return;
-                lastNotifiedVersion = updateInfo.latest;
-                console.log(`[AUTO-UPDATE] New version v${updateInfo.latest} available — notifying owner (auto-apply disabled)`);
-                await notifyOwnerOfUpdate(client, updateInfo.latest, false, updateInfo.body, updateInfo.assets);
+                if (latestVersion === lastNotifiedVersion) return;
+                lastNotifiedVersion = latestVersion;
+                console.log(`[AUTO-UPDATE] New version v${latestVersion} available -- notifying owner (auto-apply disabled)`);
+                await notifyOwnerOfUpdate(client, latestVersion, false, releaseBody, releaseAssets);
                 return;
             }
 
-            console.log(`[AUTO-UPDATE] New version v${updateInfo.latest} found — notifying owner and applying update...`);
-            await notifyOwnerOfUpdate(client, updateInfo.latest, true, updateInfo.body, updateInfo.assets);
+            if (latestVersion === lastNotifiedVersion) return;
+            lastNotifiedVersion = latestVersion;
 
+            console.log(`[AUTO-UPDATE] New version v${latestVersion} found -- notifying owner and applying update...`);
+            await notifyOwnerOfUpdate(client, latestVersion, true, releaseBody, releaseAssets);
+
+            if (hasDockerSocket()) {
+                // Docker mode: pull and recreate via Docker Engine API
+                try {
+                    const result = await applyDockerUpdate();
+                    if (!result.success) {
+                        console.error('[AUTO-UPDATE] Docker update failed:', result.message);
+                    }
+                    // If successful, this container will be replaced
+                } catch (error) {
+                    console.error('[AUTO-UPDATE] Docker update failed:', error.message);
+                }
+                return;
+            }
+
+            // Non-Docker: apply via ZIP download
             if (typeof global.applyUpdate !== 'function') return;
 
             const result = await global.applyUpdate();
@@ -676,7 +955,7 @@ function startAutoUpdateScheduler(client) {
                 return;
             }
 
-            console.log('[AUTO-UPDATE] Update applied successfully — restarting bot...');
+            console.log('[AUTO-UPDATE] Update applied successfully -- restarting bot...');
 
             if (typeof global.restartBot === 'function') {
                 await global.restartBot();

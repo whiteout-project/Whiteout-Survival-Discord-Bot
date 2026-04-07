@@ -43,6 +43,8 @@ async function handleSetTestIdButton(interaction) {
         }
 
         // Create and show modal directly
+        const currentTestId = getTestIdForValidation();
+
         const modal = new ModalBuilder()
             .setCustomId(`test_id_modal_${interaction.user.id}`)
             .setTitle(lang.giftCode.giftSetTestId.modal.title);
@@ -53,7 +55,8 @@ async function handleSetTestIdButton(interaction) {
             .setStyle(TextInputStyle.Short)
             .setMinLength(1)
             .setMaxLength(20)
-            .setRequired(true);
+            .setRequired(true)
+            .setValue(String(currentTestId));
 
         const testIdLabel = new LabelBuilder()
             .setLabel(lang.giftCode.giftSetTestId.modal.testIdInput.label)

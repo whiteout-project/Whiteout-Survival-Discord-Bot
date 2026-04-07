@@ -1,0 +1,13 @@
+# Ignore everything by default
+*
+
+# Only include files needed for the Docker image
+!src/
+!starter.js
+!package.json
+!package-lock.json
+
+# Exclude runtime data from included paths
+src/database/
+src/.env
+src/temp/
