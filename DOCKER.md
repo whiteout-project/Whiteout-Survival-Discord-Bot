@@ -6,15 +6,22 @@ Run the bot in Docker with automatic updates and zero maintenance.
 
 ## Quick Start
 
+### Linux / macOS
+
 Run this single command on any Linux server with `curl` installed:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/whiteout-project/Whiteout-Survival-Discord-Bot/main/install.sh | bash
 ```
 
-This will:
-1. Install Docker if not already present
-2. Create the install directory at `~/woslandjs`
+### Windows
+
+1. Install [Docker Desktop for Windows](https://docs.docker.com/desktop/setup/install/windows-install/) if you don't have it
+2. Download [`install.bat`](https://raw.githubusercontent.com/whiteout-project/Whiteout-Survival-Discord-Bot/main/install.bat) and double-click it
+
+Both installers will:
+1. Verify Docker is installed and running
+2. Create the install directory (`~/woslandjs` on Linux, `%USERPROFILE%\woslandjs` on Windows)
 3. Download the Docker Compose configuration
 4. Prompt for your Discord bot token
 5. Pull the image and start the bot
@@ -25,7 +32,7 @@ That's it. The bot is running and will auto-update itself.
 
 ## Manual Setup
 
-If you prefer to set things up yourself:
+### Linux / macOS
 
 ```bash
 # Create a directory
@@ -40,6 +47,25 @@ echo "TOKEN=your_discord_bot_token_here" > .env
 chmod 600 .env
 
 # Start the bot
+docker compose pull
+docker compose up -d
+```
+
+### Windows (Command Prompt)
+
+```cmd
+REM Create a directory
+mkdir %USERPROFILE%\woslandjs\data\database
+mkdir %USERPROFILE%\woslandjs\data\plugins
+cd /d %USERPROFILE%\woslandjs
+
+REM Download the compose file
+curl -fsSL https://raw.githubusercontent.com/whiteout-project/Whiteout-Survival-Discord-Bot/main/docker-compose.yml -o docker-compose.yml
+
+REM Create your .env file with your Discord bot token
+echo TOKEN=your_discord_bot_token_here> .env
+
+REM Start the bot
 docker compose pull
 docker compose up -d
 ```
@@ -136,6 +162,8 @@ The bot also has a built-in Google Drive backup feature accessible from the sett
 
 ## Uninstall
 
+### Linux / macOS
+
 ```bash
 cd ~/woslandjs
 docker compose down --rmi all    # Stop and remove the image
@@ -143,7 +171,16 @@ cd ~
 rm -rf ~/woslandjs               # Remove all files (including database)
 ```
 
-To keep your data, copy `~/woslandjs/data/` somewhere safe before removing the directory.
+### Windows
+
+```cmd
+cd /d %USERPROFILE%\woslandjs
+docker compose down --rmi all
+cd /d %USERPROFILE%
+rmdir /s /q woslandjs
+```
+
+To keep your data, copy the `data/` folder somewhere safe before removing the directory.
 
 ---
 
