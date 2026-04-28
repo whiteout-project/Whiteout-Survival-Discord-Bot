@@ -1541,6 +1541,15 @@ async function reloadAllFiles() {
     for (const ep of eventPaths) { clearCache(ep); }
     for (const cp of commandPaths) { clearCache(cp); }
 
+    // Also clear plugin dependency files (server.js, tunnel.js, etc.) that are
+    // not in handlerPaths/eventPaths/commandPaths but live under plugins/
+    const pluginsDir = path.join(__dirname, 'plugins');
+    for (const cacheKey of Object.keys(require.cache)) {
+        if (cacheKey.startsWith(pluginsDir)) {
+            clearCache(cacheKey);
+        }
+    }
+
     // Step 4: Reload i18n
     try {
         const i18nPath = path.join(SRC_DIR, 'i18n', 'index.js');
@@ -1822,6 +1831,13 @@ async function gracefulShutdown(exitCode = 0) {
         }
     } catch { /* database module not loaded or already closed */ }
 
+    // 7. Checkpoint and close the web panel plugin database (WAL mode).
+    try {
+        const pluginDb = require('./plugins/web-panel/pluginDb');
+        pluginDb.close();
+        console.log('[SHUTDOWN] Web panel database closed cleanly (WAL checkpointed).');
+    } catch { /* plugin not loaded or already closed */ }
+
     process.exit(exitCode);
 }
 
@@ -2067,6 +2083,11 @@ process.on('exit', () => {
             db.close();
         }
     } catch { /* already closed or not loaded */ }
+
+    try {
+        const pluginDb = require('./plugins/web-panel/pluginDb');
+        pluginDb.close();
+    } catch { /* plugin not loaded or already closed */ }
 });
 
 // Expose functions globally for programmatic use (e.g., settings panel auto-update)

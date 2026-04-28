@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const https = require('https');
+const { acquire7z } = require('../utility/ensure7zip');
 const {
     ButtonBuilder,
     ButtonStyle,
@@ -9,8 +10,7 @@ const {
     TextDisplayBuilder,
     SectionBuilder,
     SeparatorBuilder,
-    SeparatorSpacingSize,
-    ActionRowBuilder
+    SeparatorSpacingSize
 } = require('discord.js');
 const { getUserInfo, handleError, assertUserMatches, updateComponentsV2AfterSeparator } = require('../utility/commonFunctions');
 const { getComponentEmoji, getEmojiMapForUser } = require('../utility/emojis');
@@ -368,37 +368,19 @@ async function handlePluginInstall(interaction) {
         // Install the plugin
         const result = await global.pluginManager.install(pluginName);
 
-        let resultText;
-        let color;
-        if (result.success) {
-            resultText = pluginLang.content.installSuccess.replace('{name}', pluginName);
-            color = 0x2ecc71;
-        } else {
-            resultText = pluginLang.content.installFailed
+        const resultText = result.success
+            ? pluginLang.content.installSuccess.replace('{name}', pluginName)
+            : pluginLang.content.installFailed
                 .replace('{name}', pluginName)
                 .replace('{error}', result.message);
-            color = 0xff0000;
-        }
+        const color = result.success ? 0x2ecc71 : 0xff0000;
 
         const resultContainer = new ContainerBuilder()
             .setAccentColor(color)
             .addTextDisplayComponents(
                 new TextDisplayBuilder().setContent(resultText)
-            )
-            .addSeparatorComponents(
-                new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true)
-            )
-            .addActionRowComponents(
-                new ActionRowBuilder().addComponents(
-                    new ButtonBuilder()
-                        .setCustomId(`plugins_install_menu_${userId}`)
-                        .setLabel(pluginLang.buttons.backToInstall)
-                        .setStyle(ButtonStyle.Secondary)
-                        .setEmoji(getComponentEmoji(getEmojiMapForUser(userId), '1018'))
-                )
             );
 
-        // Can't use updateComponentsV2AfterSeparator here since the message was already modified
         // Use the same structure: main container + separator + result
         const currentComponents = interaction.message.components;
         const mainContainer = currentComponents[0];
@@ -408,6 +390,10 @@ async function handlePluginInstall(interaction) {
             components: [mainContainer, separator, resultContainer],
             flags: MessageFlags.IsComponentsV2
         });
+
+        if (result.success && typeof global.restartBot === 'function') {
+            setTimeout(() => global.restartBot(), 2000);
+        }
 
     } catch (error) {
         await handleError(interaction, lang, error, 'handlePluginInstall');
@@ -469,17 +455,23 @@ async function installPlugin(pluginName, registrar) {
         if (fs.existsSync(extractDir)) fs.rmSync(extractDir, { recursive: true, force: true });
         fs.mkdirSync(extractDir, { recursive: true });
 
-        const platform = os.platform();
+        const { binPath: sevenZipPath, cleanupPath: sevenZipCleanup } = await acquire7z(os.tmpdir());
+        if (!sevenZipPath) {
+            if (fs.existsSync(extractDir)) fs.rmSync(extractDir, { recursive: true, force: true });
+            if (fs.existsSync(zipPath)) fs.unlinkSync(zipPath);
+            return { success: false, message: 'Could not locate 7-Zip binary for extraction.' };
+        }
+
         try {
-            if (platform === 'win32') {
-                execSync(`powershell -Command "Expand-Archive -Path '${zipPath}' -DestinationPath '${extractDir}' -Force"`, { stdio: 'pipe' });
-            } else {
-                execSync(`unzip -q "${zipPath}" -d "${extractDir}"`, { stdio: 'pipe' });
-            }
+            execSync(`"${sevenZipPath}" x "${zipPath}" -o"${extractDir}" -y`, { stdio: 'pipe' });
         } catch (e) {
             if (fs.existsSync(extractDir)) fs.rmSync(extractDir, { recursive: true, force: true });
             if (fs.existsSync(zipPath)) fs.unlinkSync(zipPath);
             return { success: false, message: `Failed to extract plugin: ${e.message}` };
+        } finally {
+            if (sevenZipCleanup && fs.existsSync(sevenZipCleanup)) {
+                try { fs.unlinkSync(sevenZipCleanup); } catch { /* best-effort cleanup */ }
+            }
         }
 
         let pluginRoot = extractDir;

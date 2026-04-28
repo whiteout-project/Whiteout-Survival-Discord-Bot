@@ -1816,9 +1816,9 @@
             "noAvailable": "Aucun plugin supplémentaire disponible.",
             "installing": "Installation du plugin **{name}**... Cela peut prendre un moment.",
             "removing": "Suppression du plugin **{name}**...",
-            "installSuccess": "{emoji.1004} Plugin **{name}** installé ! Redémarrez le bot pour enregistrer les nouvelles commandes.",
+            "installSuccess": "{emoji.1004} Plugin **{name}** installé ! Le bot redémarre pour enregistrer les nouvelles commandes...",
             "installFailed": "{emoji.1050} Échec de l'installation du plugin **{name}** : {error}",
-            "removeSuccess": "{emoji.1004} Plugin **{name}** supprimé.",
+            "removeSuccess": "{emoji.1004} Plugin **{name}** supprimé. Le bot redémarre...",
             "removeFailed": "{emoji.1050} Échec de la suppression du plugin **{name}** : {error}",
             "registryError": "{emoji.1050} Impossible de récupérer le registre des plugins. Vérifiez votre connexion internet.",
             "loading": "Chargement des plugins..."
