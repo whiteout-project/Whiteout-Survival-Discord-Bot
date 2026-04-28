@@ -1847,7 +1847,7 @@ function computeRedeemStats(redeemContext, results, current) {
         entry.preFiltered === true || ALREADY_REDEEMED_STATUSES.includes(entry.status)
     ).length;
 
-    // Poor players: VIP restrictions + Level restrictions
+    // Poor players: VIP restrictions + Level restrictions + VIP-skipped (detected mid-process)
     const vipRestricted = processedResults.filter((entry) =>
         !entry.preFiltered && VIP_RESTRICTION_STATUSES.includes(entry.status)
     ).length;
@@ -1856,11 +1856,15 @@ function computeRedeemStats(redeemContext, results, current) {
         !entry.preFiltered && LEVEL_RESTRICTION_STATUSES.includes(entry.status)
     ).length;
 
-    const restricted = vipRestricted + levelRestricted;
+    const vipSkippedCount = processedResults.filter((entry) =>
+        !entry.preFiltered && entry.vipSkipped === true
+    ).length;
 
-    // Failed includes actual failures + VIP-skipped players (skipped after VIP detection)
+    const restricted = vipRestricted + levelRestricted + vipSkippedCount;
+
+    // Failed includes actual failures (excluding VIP-skipped — those are counted as restricted)
     const failed = processedResults.filter((entry) =>
-        !entry.preFiltered && (entry.success === false || entry.vipSkipped === true)
+        !entry.preFiltered && entry.success === false && !entry.vipSkipped
     ).length;
 
     // Total pending = items that still need processing (NOT pre-filtered, NOT processed yet)

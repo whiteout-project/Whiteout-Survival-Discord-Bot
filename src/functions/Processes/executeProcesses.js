@@ -1,8 +1,10 @@
-const { getProcessById, updateProcessStatus, PROCESS_STATUS } = require('./createProcesses');
+const { getProcessById, updateProcessStatus, updateProcessProgress, PROCESS_STATUS } = require('./createProcesses');
 const { queueManager } = require('./queueManager');
 const { systemLogQueries } = require('../utility/database');
 const { executeAutoRefresh: executeAutoRefreshFunction } = require('../Alliance/refreshAlliance');
 const { handleError } = require('../utility/commonFunctions');
+
+const MAX_REQUEUE_ATTEMPTS = 3;
 
 /**
  * SQLite-based process execution controller with priority management
@@ -66,10 +68,38 @@ class ProcessExecutor {
                     return true; // Process was paused, not completed
                 }
 
-                // Only complete if process is still active
+                // Only complete if process is still active AND all work is done
                 if (currentStatus && currentStatus.status === 'active') {
-                    // Complete process and start next (handled internally by queueManager)
-                    await queueManager.completeProcess(process_id);
+                    // Guard: don't complete if there's still pending work (race condition protection)
+                    const hasPendingWork = currentStatus.progress?.pending?.length > 0;
+                    if (hasPendingWork) {
+                        const requeueCount = (currentStatus.progress.requeue_count || 0) + 1;
+
+                        if (requeueCount >= MAX_REQUEUE_ATTEMPTS) {
+                            // Move remaining pending items to failed and complete the process
+                            const updatedProgress = {
+                                ...currentStatus.progress,
+                                failed: [...(currentStatus.progress.failed || []), ...currentStatus.progress.pending],
+                                pending: [],
+                                requeue_count: requeueCount
+                            };
+                            await updateProcessProgress(process_id, updatedProgress);
+                            systemLogQueries.addLog('error', `Process ${process_id} failed after ${requeueCount} requeue attempts, ${currentStatus.progress.pending.length} items moved to failed`,
+                                JSON.stringify({ process_id, action: currentStatus.action, function: 'executeProcess' }));
+                            await queueManager.completeProcess(process_id);
+                        } else {
+                            // Track requeue count in progress and re-queue
+                            const updatedProgress = { ...currentStatus.progress, requeue_count: requeueCount };
+                            await updateProcessProgress(process_id, updatedProgress);
+                            await updateProcessStatus(process_id, PROCESS_STATUS.QUEUED);
+                            systemLogQueries.addLog('warn', `Process ${process_id} re-queued (attempt ${requeueCount}/${MAX_REQUEUE_ATTEMPTS}): ${currentStatus.progress.pending.length} pending items remain`,
+                                JSON.stringify({ process_id, action: currentStatus.action, function: 'executeProcess' }));
+                            await queueManager.startNextProcess();
+                        }
+                    } else {
+                        // Complete process and start next (handled internally by queueManager)
+                        await queueManager.completeProcess(process_id);
+                    }
                 } else {
                     // console.log(`Process ${process_id} status is ${currentStatus?.status}, not completing`);
                 }
