@@ -111,8 +111,9 @@ function copyDirRecursive(src, dest) {
     }
 }
 
-/** File extensions that must survive a plugin update (database files only — WAL/SHM files are
- *  transient and get recreated automatically by SQLite on next open). */
+/** File extensions that must survive a plugin update (database files only).
+ *  WAL/SHM files are excluded — the plugin is unloaded before staging so SQLite
+ *  checkpoints all pending WAL data into the .db file before it is copied). */
 const PRESERVE_EXTENSIONS = new Set(['.db', '.sqlite']);
 /** Subdirectory names to preserve wholesale across plugin updates (downloaded binaries, user data). */
 const PRESERVE_DIR_NAMES = new Set(['bin', 'data']);
@@ -584,8 +585,8 @@ async function checkPluginUpdates() {
 
 /**
  * Updates a specific plugin to the latest version from the registry.
- * Databases (*.db, *.sqlite and their WAL files) and downloaded binaries
- * (bin/) are preserved across the update so no data is lost.
+ * Unloads the plugin first (closing DB connections so WAL is checkpointed),
+ * then stages database files, wipes the directory, and reinstalls.
  * @param {string} pluginName - Plugin name to update
  * @param {Object} registrar - Register/unregister functions
  * @returns {Promise<{ success: boolean, message: string }>}
@@ -597,7 +598,11 @@ async function updatePlugin(pluginName, registrar) {
     const pluginDir = path.join(PLUGINS_DIR, pluginName);
     const stageDir = path.join(os.tmpdir(), `wos_plugin_${pluginName}_preserve_${Date.now()}`);
 
-    // Stage important files before wiping the plugin directory
+    // Unload the plugin first so that any open SQLite connections are closed
+    // and WAL data is checkpointed back into the .db file before we stage it.
+    unloadPlugin(pluginName, registrar);
+
+    // Stage important files after unload (DB connections closed = WAL flushed to .db)
     if (fs.existsSync(pluginDir)) {
         try {
             scanAndStagePluginData(pluginDir, pluginDir, stageDir);
@@ -605,8 +610,6 @@ async function updatePlugin(pluginName, registrar) {
             console.warn(`[PLUGINS] Warning: could not stage data for ${pluginName}: ${e.message}`);
         }
     }
-
-    unloadPlugin(pluginName, registrar);
 
     if (fs.existsSync(pluginDir)) {
         fs.rmSync(pluginDir, { recursive: true, force: true });
