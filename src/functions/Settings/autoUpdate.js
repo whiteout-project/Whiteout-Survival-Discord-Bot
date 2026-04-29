@@ -1047,7 +1047,7 @@ function startAutoUpdateScheduler(client) {
                 if (typeof global.restartBot === 'function') {
                     await global.restartBot();
                 } else {
-                    process.exit(0);
+                    process.exit(global.isDocker ? 1 : 0);
                 }
                 return;
             }
@@ -1058,7 +1058,7 @@ function startAutoUpdateScheduler(client) {
                 if (typeof global.restartBot === 'function') {
                     await global.restartBot();
                 } else {
-                    process.exit(0);
+                    process.exit(global.isDocker ? 1 : 0);
                 }
             }
         } catch (error) {

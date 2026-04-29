@@ -111,8 +111,9 @@ function copyDirRecursive(src, dest) {
     }
 }
 
-/** File extensions that must survive a plugin update (databases, WAL files). */
-const PRESERVE_EXTENSIONS = new Set(['.db', '.db-shm', '.db-wal', '.sqlite', '.sqlite-shm', '.sqlite-wal']);
+/** File extensions that must survive a plugin update (database files only — WAL/SHM files are
+ *  transient and get recreated automatically by SQLite on next open). */
+const PRESERVE_EXTENSIONS = new Set(['.db', '.sqlite']);
 /** Subdirectory names to preserve wholesale across plugin updates (downloaded binaries, user data). */
 const PRESERVE_DIR_NAMES = new Set(['bin', 'data']);
 

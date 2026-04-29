@@ -285,6 +285,19 @@ function unloadPlugin(pluginName, registrar) {
 
     i18n.removePluginLocales(pluginName);
 
+    // Close and evict ALL remaining cached modules under this plugin's directory.
+    const pluginDir = path.resolve(PLUGINS_DIR, pluginName);
+    const pluginDirPrefix = pluginDir.toLowerCase().replace(/\\/g, '/');
+    for (const [modulePath, cachedModule] of Object.entries(require.cache)) {
+        const normalizedPath = modulePath.toLowerCase().replace(/\\/g, '/');
+        if (normalizedPath.startsWith(pluginDirPrefix + '/') || normalizedPath === pluginDirPrefix) {
+            if (cachedModule?.exports && typeof cachedModule.exports.close === 'function') {
+                try { cachedModule.exports.close(); } catch { /* best-effort */ }
+            }
+            delete require.cache[modulePath];
+        }
+    }
+
     loadedPlugins.delete(pluginName);
     console.log(`[PLUGINS] Unloaded: ${pluginName}`);
     return true;

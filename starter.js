@@ -1692,9 +1692,11 @@ async function restartBot() {
             process.exit(42);
         }
 
-        // Docker: exit cleanly -- the container restart policy handles the respawn
+        // Docker: exit with code 1 so all restart policies (including Render, Railway,
+        // Fly.io and plain `docker run` without --restart=always) trigger a respawn.
+        // Most platforms only restart on non-zero exit; exit(0) is treated as intentional stop.
         if (global.isDocker) {
-            process.exit(0);
+            process.exit(1);
         }
 
         // Fallback: in-process restart (direct execution without parent wrapper)
