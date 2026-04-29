@@ -111,6 +111,38 @@ function copyDirRecursive(src, dest) {
     }
 }
 
+/** File extensions that must survive a plugin update (databases, WAL files). */
+const PRESERVE_EXTENSIONS = new Set(['.db', '.db-shm', '.db-wal', '.sqlite', '.sqlite-shm', '.sqlite-wal']);
+/** Subdirectory names to preserve wholesale across plugin updates (downloaded binaries, user data). */
+const PRESERVE_DIR_NAMES = new Set(['bin', 'data']);
+
+/**
+ * Recursively scans a plugin directory and copies files/dirs that must survive updates
+ * to a staging directory, preserving relative paths.
+ * @param {string} baseDir - Root plugin directory
+ * @param {string} currentDir - Current scan directory
+ * @param {string} stageDir - Staging destination
+ */
+function scanAndStagePluginData(baseDir, currentDir, stageDir) {
+    if (!fs.existsSync(currentDir)) return;
+    const entries = fs.readdirSync(currentDir, { withFileTypes: true });
+    for (const entry of entries) {
+        const srcPath = path.join(currentDir, entry.name);
+        const relPath = path.relative(baseDir, srcPath);
+        const destPath = path.join(stageDir, relPath);
+        if (entry.isDirectory()) {
+            if (PRESERVE_DIR_NAMES.has(entry.name)) {
+                copyDirRecursive(srcPath, destPath);
+            } else {
+                scanAndStagePluginData(baseDir, srcPath, stageDir);
+            }
+        } else if (PRESERVE_EXTENSIONS.has(path.extname(entry.name))) {
+            fs.mkdirSync(path.dirname(destPath), { recursive: true });
+            fs.copyFileSync(srcPath, destPath);
+        }
+    }
+}
+
 /**
  * Compares two semver version strings
  * @param {string} a - Version A
@@ -550,23 +582,52 @@ async function checkPluginUpdates() {
 }
 
 /**
- * Updates a specific plugin to the latest version from the registry
+ * Updates a specific plugin to the latest version from the registry.
+ * Databases (*.db, *.sqlite and their WAL files) and downloaded binaries
+ * (bin/) are preserved across the update so no data is lost.
  * @param {string} pluginName - Plugin name to update
  * @param {Object} registrar - Register/unregister functions
  * @returns {Promise<{ success: boolean, message: string }>}
  */
 async function updatePlugin(pluginName, registrar) {
+    const os = require('os');
     const { unloadPlugin } = require('./pluginDelete');
+
+    const pluginDir = path.join(PLUGINS_DIR, pluginName);
+    const stageDir = path.join(os.tmpdir(), `wos_plugin_${pluginName}_preserve_${Date.now()}`);
+
+    // Stage important files before wiping the plugin directory
+    if (fs.existsSync(pluginDir)) {
+        try {
+            scanAndStagePluginData(pluginDir, pluginDir, stageDir);
+        } catch (e) {
+            console.warn(`[PLUGINS] Warning: could not stage data for ${pluginName}: ${e.message}`);
+        }
+    }
 
     unloadPlugin(pluginName, registrar);
 
-    const pluginDir = path.join(PLUGINS_DIR, pluginName);
     if (fs.existsSync(pluginDir)) {
         fs.rmSync(pluginDir, { recursive: true, force: true });
     }
 
     loadedPlugins.delete(pluginName);
-    return await installPlugin(pluginName, registrar);
+    const result = await installPlugin(pluginName, registrar);
+
+    // Restore staged files into the freshly installed plugin directory
+    if (fs.existsSync(stageDir)) {
+        try {
+            if (result.success && fs.existsSync(pluginDir)) {
+                copyDirRecursive(stageDir, pluginDir);
+            }
+        } catch (e) {
+            console.warn(`[PLUGINS] Warning: could not restore preserved data for ${pluginName}: ${e.message}`);
+        } finally {
+            try { fs.rmSync(stageDir, { recursive: true, force: true }); } catch { /* best-effort cleanup */ }
+        }
+    }
+
+    return result;
 }
 
 module.exports = {
