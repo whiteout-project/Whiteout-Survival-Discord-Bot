@@ -702,6 +702,7 @@ async function applyUpdate() {
                 const failMsg = stats.failed > 0 ? ` ${stats.failed} files failed to update.` : '';
                 return {
                     success: true,
+                    restartHandled: true,
                     message: `Update applied successfully! ${stats.updated} files updated, ${stats.added} files added.${failMsg} starter.js changed — restarting automatically...`
                 };
             } else {
@@ -2021,7 +2022,7 @@ function setupCommandInterface() {
                         if (answer.trim().toLowerCase() === 'y') {
                             const result = await applyUpdate();
                             console.log(`\n${result.message}`);
-                            if (result.success) {
+                            if (result.success && !result.restartHandled) {
                                 console.log('Restarting bot...\n');
                                 await restartBot();
                             }

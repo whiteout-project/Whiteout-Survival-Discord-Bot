@@ -578,6 +578,19 @@ async function handleAutoUpdateApply(interaction) {
                 flags: MessageFlags.IsComponentsV2
             });
 
+            if (result.restartHandled) {
+                try {
+                    fs.writeFileSync(PENDING_UPDATE_PATH, JSON.stringify({
+                        channelId: interaction.channelId,
+                        messageId: interaction.message.id,
+                        userId: interaction.user.id
+                    }));
+                } catch (writeError) {
+                    console.error('Failed to save pending update reference:', writeError.message);
+                }
+                return;
+            }
+
             if (hasParentWrapper || global.isDocker) {
                 // Parent wrapper or Docker -- save message ref for post-restart update
                 try {
@@ -1040,6 +1053,11 @@ function startAutoUpdateScheduler(client) {
                 const result = await global.applyUpdate();
                 if (!result.success) {
                     console.error('[AUTO-UPDATE] Update failed:', result.message);
+                    return;
+                }
+
+                if (result.restartHandled) {
+                    console.log('[AUTO-UPDATE] Update applied successfully -- restart already scheduled...');
                     return;
                 }
 
