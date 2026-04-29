@@ -1,4 +1,4 @@
-﻿const readline = require('readline');
+const readline = require('readline');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -994,7 +994,8 @@ async function checkDepsInstalled(cwd, env) {
 /**
  * Runs npm install (or npm ci for clean installs) with automatic retry.
  * For updates, uses `npm install` (incremental) to avoid re-downloading everything.
- * For fresh installs, uses `npm ci` when lockfile exists for deterministic installs.
+ * For fresh installs, tries `npm ci` when lockfile exists, then automatically
+ * falls back to `npm install` if npm ci fails (e.g. missing or stale lockfile).
  * If disk space is too low for `npm ci`, falls back to `npm install` automatically.
  * Cleans npm cache after successful install to reclaim disk space.
  * @param {string} cwd     - Working directory (where package.json lives)
@@ -1045,10 +1046,6 @@ async function robustNpmInstall(cwd, context, { preferCleanInstall = false, isUp
         }
     }
 
-    const npmCommand = useCleanInstall ? 'ci' : 'install';
-    const BASE_FLAGS = [npmCommand, '--omit=optional', '--no-audit', '--no-fund'];
-    if (!useCleanInstall) BASE_FLAGS.push('--prefer-offline');
-
     // For updates (incremental install), prune orphaned packages from previous versions
     // before installing. npm install is supposed to do this but sometimes leaves leftovers.
     if (isUpdate && !useCleanInstall) {
@@ -1064,21 +1061,34 @@ async function robustNpmInstall(cwd, context, { preferCleanInstall = false, isUp
         console.log(`${context} Low-memory machine detected (${totalMb} MB total, ${freeMb} MB free, npm heap: ${heapMb} MB). Install may take multiple attempts...`);
     }
 
+    // Track current command and flags — may switch from ci -> install on first failure
+    let currentCommand = useCleanInstall ? 'ci' : 'install';
+    let currentFlags = [currentCommand, '--omit=optional', '--no-audit', '--no-fund'];
+    if (currentCommand === 'install') currentFlags.push('--prefer-offline');
+
     let installSucceeded = false;
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
         try {
-            console.log(`${context} Running npm ${npmCommand} (attempt ${attempt}/${MAX_RETRIES}, heap: ${heapMb} MB)...`);
-            await spawnAsync('npm', BASE_FLAGS, { cwd, stdio: 'inherit', env: npmEnv });
+            console.log(`${context} Running npm ${currentCommand} (attempt ${attempt}/${MAX_RETRIES}, heap: ${heapMb} MB)...`);
+            await spawnAsync('npm', currentFlags, { cwd, stdio: 'inherit', env: npmEnv });
             console.log(`${context} Dependencies installed successfully.`);
             installSucceeded = true;
             break;
         } catch (err) {
-            console.warn(`${context} npm ${npmCommand} attempt ${attempt} failed: ${err.message}`);
+            console.warn(`${context} npm ${currentCommand} attempt ${attempt} failed: ${err.message}`);
 
             if (await checkDepsInstalled(cwd, npmEnv)) {
                 console.log(`${context} Install was interrupted but all packages are verified present.`);
                 installSucceeded = true;
                 break;
+            }
+
+            // If npm ci failed for any reason, fall back to npm install for remaining attempts.
+            // This handles missing lockfile, stale/mismatched lockfile, and other ci-specific errors.
+            if (currentCommand === 'ci') {
+                console.log(`${context} npm ci failed — falling back to npm install for remaining attempts...`);
+                currentCommand = 'install';
+                currentFlags = ['install', '--omit=optional', '--no-audit', '--no-fund', '--prefer-offline'];
             }
 
             if (attempt < MAX_RETRIES) {
