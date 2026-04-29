@@ -991,9 +991,25 @@ async function checkDepsInstalled(cwd, env) {
 }
 
 /**
+ * Builds the npm argument list for a given command ('ci' or 'install').
+ * Centralises flag construction so there is a single source of truth for
+ * both the initial invocation and any ci→install fallback.
+ *
+ * @param {'ci'|'install'} command
+ * @returns {string[]}
+ */
+function buildNpmArgs(command) {
+    const args = [command, '--omit=optional', '--no-audit', '--no-fund'];
+    if (command === 'install') args.push('--prefer-offline');
+    return args;
+}
+
+/**
  * Runs npm install (or npm ci for clean installs) with automatic retry.
  * For updates, uses `npm install` (incremental) to avoid re-downloading everything.
- * For fresh installs, uses `npm ci` when lockfile exists for deterministic installs.
+ * For fresh installs, tries `npm ci` when lockfile exists, then automatically
+ * falls back to `npm install` if npm ci fails (e.g. missing or stale lockfile).
+ * Fallback can be disabled by setting ALLOW_NPM_CI_FALLBACK=false in the environment.
  * If disk space is too low for `npm ci`, falls back to `npm install` automatically.
  * Cleans npm cache after successful install to reclaim disk space.
  * @param {string} cwd     - Working directory (where package.json lives)
@@ -1044,9 +1060,13 @@ async function robustNpmInstall(cwd, context, { preferCleanInstall = false, isUp
         }
     }
 
-    const npmCommand = useCleanInstall ? 'ci' : 'install';
-    const BASE_FLAGS = [npmCommand, '--omit=optional', '--no-audit', '--no-fund'];
-    if (!useCleanInstall) BASE_FLAGS.push('--prefer-offline');
+    // Whether a failed `npm ci` is allowed to fall back to `npm install`.
+    // Defaults to enabled; set ALLOW_NPM_CI_FALLBACK=false to disable.
+    const allowCiFallback = process.env.ALLOW_NPM_CI_FALLBACK !== 'false';
+
+    // Track current command and flags — may switch from ci -> install on first failure.
+    let currentCommand = useCleanInstall ? 'ci' : 'install';
+    let currentFlags = buildNpmArgs(currentCommand);
 
     // For updates (incremental install), prune orphaned packages from previous versions
     // before installing. npm install is supposed to do this but sometimes leaves leftovers.
@@ -1066,18 +1086,29 @@ async function robustNpmInstall(cwd, context, { preferCleanInstall = false, isUp
     let installSucceeded = false;
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
         try {
-            console.log(`${context} Running npm ${npmCommand} (attempt ${attempt}/${MAX_RETRIES}, heap: ${heapMb} MB)...`);
-            await spawnAsync('npm', BASE_FLAGS, { cwd, stdio: 'inherit', env: npmEnv });
+            console.log(`${context} Running npm ${currentCommand} (attempt ${attempt}/${MAX_RETRIES}, heap: ${heapMb} MB)...`);
+            await spawnAsync('npm', currentFlags, { cwd, stdio: 'inherit', env: npmEnv });
             console.log(`${context} Dependencies installed successfully.`);
             installSucceeded = true;
             break;
         } catch (err) {
-            console.warn(`${context} npm ${npmCommand} attempt ${attempt} failed: ${err.message}`);
+            console.warn(`${context} npm ${currentCommand} attempt ${attempt} failed: ${err.message}`);
 
             if (await checkDepsInstalled(cwd, npmEnv)) {
                 console.log(`${context} Install was interrupted but all packages are verified present.`);
                 installSucceeded = true;
                 break;
+            }
+
+            // If npm ci failed, optionally fall back to npm install for remaining attempts.
+            if (currentCommand === 'ci') {
+                if (allowCiFallback) {
+                    console.log(`${context} npm ci failed (${err.message}) — falling back to npm install for remaining attempts...`);
+                    currentCommand = 'install';
+                    currentFlags = buildNpmArgs('install');
+                } else {
+                    console.log(`${context} npm ci failed and ALLOW_NPM_CI_FALLBACK=false — continuing to retry npm ci...`);
+                }
             }
 
             if (attempt < MAX_RETRIES) {
