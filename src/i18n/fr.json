@@ -1946,7 +1946,12 @@
                 "titleNotify": "## {emoji.1022} Nouvelle mise à jour disponible !",
                 "version": "**v{currentVersion}** → **v{latestVersion}**",
                 "autoApply": "-# Application de la mise à jour et redémarrage en cours",
-                "notifyOnly": "-# Utilisez le panneau de mise à jour pour l'appliquer"
+                "notifyOnly": "-# Utilisez le panneau de mise à jour pour l'appliquer",
+                "pluginTitle": "## {emoji.1033} Plugins mis à jour !",
+                "pluginTitleNotify": "## {emoji.1022} Mises à jour de plugins disponibles !",
+                "pluginApplied": "-# Le bot redémarre pour charger les nouvelles versions",
+                "pluginNotifyOnly": "-# Utilisez le panneau Mises à jour dans /panel pour les appliquer",
+                "pluginItem": "- **{name}** : v{current} → v{latest}"
             }
         },
         "language": {

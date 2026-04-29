@@ -1946,7 +1946,12 @@
 				"titleNotify": "## {emoji.1022} New Update Available!",
 				"version": "**v{currentVersion}** → **v{latestVersion}**",
 				"autoApply": "-# Applying update and restarting now",
-				"notifyOnly": "-# Use the Update panel to apply it"
+				"notifyOnly": "-# Use the Update panel to apply it",
+				"pluginTitle": "## {emoji.1033} Plugin Updates Applied!",
+				"pluginTitleNotify": "## {emoji.1022} Plugin Updates Available!",
+				"pluginApplied": "-# The bot is restarting to load the new versions",
+				"pluginNotifyOnly": "-# Use the Update panel in /panel to apply them",
+				"pluginItem": "- **{name}**: v{current} → v{latest}"
 			}
 		},
 		"language": {
