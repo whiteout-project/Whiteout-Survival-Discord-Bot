@@ -13,8 +13,13 @@ const {
 const { settingsQueries, adminQueries } = require('../utility/database');
 const { getUserInfo, handleError, assertUserMatches, updateComponentsV2AfterSeparator } = require('../utility/commonFunctions');
 const { getComponentEmoji, getEmojiMapForUser, replaceEmojiPlaceholders } = require('../utility/emojis');
+const {
+    acquireUpdateLock,
+    releaseUpdateLock,
+    formatActiveUpdateMessage
+} = require('./updateCoordinator');
 
-const PENDING_UPDATE_PATH = path.join(__dirname, '..', '..', 'temp', 'pending_update.json');
+const PENDING_UPDATE_PATH = path.join(__dirname, '..', '..', 'database', 'pending_update.json');
 const AUTO_UPDATE_INTERVAL_MS = 5 * 60 * 1000;
 const DOCKER_SOCKET = '/var/run/docker.sock';
 
@@ -22,6 +27,15 @@ let autoUpdateInterval = null;
 let lastNotifiedVersion = null;
 /** Tracks which plugin versions have already triggered a notification to avoid DM spam */
 const lastNotifiedPluginVersions = new Map();
+
+function savePendingUpdateReference(payload) {
+    try {
+        fs.mkdirSync(path.dirname(PENDING_UPDATE_PATH), { recursive: true });
+        fs.writeFileSync(PENDING_UPDATE_PATH, JSON.stringify(payload));
+    } catch (error) {
+        console.error('Failed to save pending update reference:', error.message);
+    }
+}
 
 // -------------------------------------------------------
 // Docker Engine API (direct Unix socket communication)
@@ -462,6 +476,15 @@ async function handleAutoUpdateApply(interaction) {
         }
 
         const settingsLang = lang.settings?.autoUpdate || {};
+        const updateLock = acquireUpdateLock('settings bot update');
+        if (!updateLock.acquired) {
+            return await interaction.reply({
+                content: formatActiveUpdateMessage(updateLock.active),
+                ephemeral: true
+            });
+        }
+
+        let keepLock = false;
 
         // Defer the reply since update will take time
         await interaction.deferUpdate();
@@ -505,16 +528,11 @@ async function handleAutoUpdateApply(interaction) {
                     flags: MessageFlags.IsComponentsV2
                 });
 
-                // Save pending update reference for post-restart message
-                try {
-                    fs.writeFileSync(PENDING_UPDATE_PATH, JSON.stringify({
-                        channelId: interaction.channelId,
-                        messageId: interaction.message.id,
-                        userId: interaction.user.id
-                    }));
-                } catch (writeError) {
-                    console.error('Failed to save pending update reference:', writeError.message);
-                }
+                savePendingUpdateReference({
+                    channelId: interaction.channelId,
+                    messageId: interaction.message.id,
+                    userId: interaction.user.id
+                });
 
                 // Pull + recreate -- this will kill this container
                 result = await applyDockerUpdate();
@@ -522,6 +540,7 @@ async function handleAutoUpdateApply(interaction) {
                     throw new Error(result.message || 'Docker update failed');
                 }
                 // If we reach here, the container is about to be replaced
+                keepLock = true;
                 return;
             } catch (error) {
                 // Show failure if Docker update failed
@@ -560,7 +579,7 @@ async function handleAutoUpdateApply(interaction) {
             const hasParentWrapper = process.env.FULL_SELF_UPDATE === '1';
 
             // Show appropriate success message
-            const isAutoRestart = hasParentWrapper || global.isDocker;
+            const isAutoRestart = hasParentWrapper;
             const successText = isAutoRestart
                 ? `${settingsLang.content.title}\n${settingsLang.content.success}`
                 : `${settingsLang.content.title}\n${settingsLang.content.description.stopping}`;
@@ -579,29 +598,22 @@ async function handleAutoUpdateApply(interaction) {
             });
 
             if (result.restartHandled) {
-                try {
-                    fs.writeFileSync(PENDING_UPDATE_PATH, JSON.stringify({
-                        channelId: interaction.channelId,
-                        messageId: interaction.message.id,
-                        userId: interaction.user.id
-                    }));
-                } catch (writeError) {
-                    console.error('Failed to save pending update reference:', writeError.message);
-                }
+                keepLock = true;
+                savePendingUpdateReference({
+                    channelId: interaction.channelId,
+                    messageId: interaction.message.id,
+                    userId: interaction.user.id
+                });
                 return;
             }
 
-            if (hasParentWrapper || global.isDocker) {
-                // Parent wrapper or Docker -- save message ref for post-restart update
-                try {
-                    fs.writeFileSync(PENDING_UPDATE_PATH, JSON.stringify({
-                        channelId: interaction.channelId,
-                        messageId: interaction.message.id,
-                        userId: interaction.user.id
-                    }));
-                } catch (writeError) {
-                    console.error('Failed to save pending update reference:', writeError.message);
-                }
+            if (hasParentWrapper) {
+                keepLock = true;
+                savePendingUpdateReference({
+                    channelId: interaction.channelId,
+                    messageId: interaction.message.id,
+                    userId: interaction.user.id
+                });
 
                 // Restart the bot after a short delay
                 setTimeout(async () => {
@@ -649,6 +661,10 @@ async function handleAutoUpdateApply(interaction) {
 
     } catch (error) {
         await handleError(interaction, lang, error, 'handleAutoUpdateApply');
+    } finally {
+        if (typeof keepLock !== 'undefined' && !keepLock && typeof updateLock?.token !== 'undefined') {
+            releaseUpdateLock(updateLock.token);
+        }
     }
 }
 
@@ -674,6 +690,15 @@ async function handleAutoUpdatePlugin(interaction) {
         }
 
         const settingsLang = lang.settings?.autoUpdate || {};
+        const updateLock = acquireUpdateLock(`plugin update: ${pluginName}`);
+        if (!updateLock.acquired) {
+            return await interaction.reply({
+                content: formatActiveUpdateMessage(updateLock.active),
+                ephemeral: true
+            });
+        }
+
+        let keepLock = false;
         await interaction.deferUpdate();
 
         // Show updating status
@@ -728,11 +753,16 @@ async function handleAutoUpdatePlugin(interaction) {
         });
 
         if (result.success && typeof global.restartBot === 'function') {
+            keepLock = true;
             setTimeout(() => global.restartBot(), 2000);
         }
 
     } catch (error) {
         await handleError(interaction, lang, error, 'handleAutoUpdatePlugin');
+    } finally {
+        if (typeof keepLock !== 'undefined' && !keepLock && typeof updateLock?.token !== 'undefined') {
+            releaseUpdateLock(updateLock.token);
+        }
     }
 }
 
@@ -951,6 +981,8 @@ function startAutoUpdateScheduler(client) {
     stopAutoUpdateScheduler();
 
     autoUpdateInterval = setInterval(async () => {
+        let keepLock = false;
+        let updateLock = null;
         try {
             // ── 1. Check bot update availability ──────────────────────────
             let botUpdateAvailable = false;
@@ -1010,6 +1042,12 @@ function startAutoUpdateScheduler(client) {
 
             // ── 4. Auto-apply mode: plugins first, then bot update ────────
 
+            updateLock = acquireUpdateLock('scheduled auto-update');
+            if (!updateLock.acquired) {
+                console.log(`[AUTO-UPDATE] ${formatActiveUpdateMessage(updateLock.active)}`);
+                return;
+            }
+
             // Apply available plugin updates before any restart
             let pluginsUpdated = false;
             if (hasPluginUpdates) {
@@ -1041,7 +1079,9 @@ function startAutoUpdateScheduler(client) {
                         const result = await applyDockerUpdate();
                         if (!result.success) {
                             console.error('[AUTO-UPDATE] Docker update failed:', result.message);
+                            return;
                         }
+                        keepLock = true;
                     } catch (error) {
                         console.error('[AUTO-UPDATE] Docker update failed:', error.message);
                     }
@@ -1058,14 +1098,16 @@ function startAutoUpdateScheduler(client) {
 
                 if (result.restartHandled) {
                     console.log('[AUTO-UPDATE] Update applied successfully -- restart already scheduled...');
+                    keepLock = true;
                     return;
                 }
 
                 console.log('[AUTO-UPDATE] Update applied successfully -- restarting bot...');
                 if (typeof global.restartBot === 'function') {
+                    keepLock = true;
                     await global.restartBot();
                 } else {
-                    process.exit(global.isDocker ? 1 : 0);
+                    process.exit(0);
                 }
                 return;
             }
@@ -1074,13 +1116,18 @@ function startAutoUpdateScheduler(client) {
             if (pluginsUpdated) {
                 console.log('[AUTO-UPDATE] Plugin updates applied -- restarting bot...');
                 if (typeof global.restartBot === 'function') {
+                    keepLock = true;
                     await global.restartBot();
                 } else {
-                    process.exit(global.isDocker ? 1 : 0);
+                    process.exit(0);
                 }
             }
         } catch (error) {
             console.error('[AUTO-UPDATE] Scheduler error:', error.message);
+        } finally {
+            if (!keepLock && updateLock?.acquired && updateLock.token) {
+                releaseUpdateLock(updateLock.token);
+            }
         }
     }, AUTO_UPDATE_INTERVAL_MS);
 }

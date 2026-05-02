@@ -317,11 +317,11 @@ async function handlePlayerIdModal(interaction) {
             });
         }
 
-        // Get and sanitize player IDs
+        // Create process through shared validation + creation path
         const rawPlayerIds = interaction.fields.getTextInputValue('player_ids');
-        const sanitizedPlayerIds = sanitizePlayerIds(rawPlayerIds);
+        const processResult = await createAddPlayerProcess(interaction.user.id, allianceId, rawPlayerIds);
 
-        if (!sanitizedPlayerIds) {
+        if (!processResult) {
             return await interaction.reply({
                 content: lang.players.addPlayer.error.invalidPlayerIds,
                 ephemeral: true
@@ -331,14 +331,7 @@ async function handlePlayerIdModal(interaction) {
         // Defer the reply since process creation might take time
         await interaction.deferReply({ ephemeral: true });
 
-        // Create process with ALL players (including existing ones)
-        // fetchPlayerData.js will handle filtering and moving existing players to 'existing' status
-        const processResult = await createProcess({
-            admin_id: String(interaction.user.id),
-            alliance_id: allianceId,
-            player_ids: sanitizedPlayerIds, // Use ALL player IDs
-            action: 'addplayer'
-        });
+        // Process uses the same addplayer flow consumed by fetchPlayerData.js
 
         // Create response embed with progress tracking (no existing players to show yet)
         const responseEmbed = createProcessResponseEmbed(processResult, { status: 'queued' }, alliance, lang, interaction, []);
@@ -461,6 +454,28 @@ function sanitizePlayerIds(rawInput) {
 }
 
 /**
+ * Create an add-player process from raw player ID input using shared validation.
+ * Returns null when the input cannot be sanitized into valid numeric IDs.
+ * @param {string} adminId
+ * @param {number} allianceId
+ * @param {string} rawPlayerIds
+ * @returns {Promise<object|null>}
+ */
+async function createAddPlayerProcess(adminId, allianceId, rawPlayerIds) {
+    const sanitizedPlayerIds = sanitizePlayerIds(rawPlayerIds);
+    if (!sanitizedPlayerIds) {
+        return null;
+    }
+
+    return createProcess({
+        admin_id: String(adminId),
+        alliance_id: allianceId,
+        player_ids: sanitizedPlayerIds,
+        action: 'addplayer'
+    });
+}
+
+/**
  * Creates the process response embed
  * @param {Object} processResult - Process creation result
  * @param {Object} queueResult - Queue management result
@@ -525,6 +540,7 @@ function createProcessResponseEmbed(processResult, queueResult, alliance, lang, 
 
 module.exports = {
     createAddPlayerButton,
+    createAddPlayerProcess,
     handleAddPlayerButton,
     handleAllianceSelection,
     handlePlayerFormButton,

@@ -14,6 +14,11 @@ const { getUserInfo, handleError, assertUserMatches, updateComponentsV2AfterSepa
 const { getComponentEmoji, getEmojiMapForUser } = require('../utility/emojis');
 const { createUniversalPaginationButtons } = require('../Pagination/universalPagination');
 const { PLUGINS_DIR, loadedPlugins } = require('./pluginsLoader');
+const {
+    acquireUpdateLock,
+    releaseUpdateLock,
+    formatActiveUpdateMessage
+} = require('../Settings/updateCoordinator');
 const i18n = require('../../i18n');
 
 const ITEMS_PER_PAGE = 5;
@@ -206,6 +211,15 @@ async function handlePluginRemove(interaction) {
 
         const pluginLang = lang.plugins;
         const userId = interaction.user.id;
+        const updateLock = acquireUpdateLock(`plugin remove: ${pluginName}`);
+        if (!updateLock.acquired) {
+            return await interaction.reply({
+                content: formatActiveUpdateMessage(updateLock.active),
+                ephemeral: true
+            });
+        }
+
+        let keepLock = false;
         await interaction.deferUpdate();
 
         // Remove the plugin
@@ -234,11 +248,16 @@ async function handlePluginRemove(interaction) {
         });
 
         if (result.success && typeof global.restartBot === 'function') {
+            keepLock = true;
             setTimeout(() => global.restartBot(), 2000);
         }
 
     } catch (error) {
         await handleError(interaction, lang, error, 'handlePluginRemove');
+    } finally {
+        if (typeof keepLock !== 'undefined' && !keepLock && typeof updateLock?.token !== 'undefined') {
+            releaseUpdateLock(updateLock.token);
+        }
     }
 }
 

@@ -18,6 +18,11 @@ const { createUniversalPaginationButtons } = require('../Pagination/universalPag
 const {
     PLUGINS_DIR, loadedPlugins, validateManifest, registerPluginModules
 } = require('./pluginsLoader');
+const {
+    acquireUpdateLock,
+    releaseUpdateLock,
+    formatActiveUpdateMessage
+} = require('../Settings/updateCoordinator');
 const i18n = require('../../i18n');
 
 // ============================================================
@@ -382,6 +387,15 @@ async function handlePluginInstall(interaction) {
 
         const pluginLang = lang.plugins;
         const userId = interaction.user.id;
+        const updateLock = acquireUpdateLock(`plugin install: ${pluginName}`);
+        if (!updateLock.acquired) {
+            return await interaction.reply({
+                content: formatActiveUpdateMessage(updateLock.active),
+                ephemeral: true
+            });
+        }
+
+        let keepLock = false;
         await interaction.deferUpdate();
 
         // Show installing status as section
@@ -426,11 +440,16 @@ async function handlePluginInstall(interaction) {
         });
 
         if (result.success && typeof global.restartBot === 'function') {
+            keepLock = true;
             setTimeout(() => global.restartBot(), 2000);
         }
 
     } catch (error) {
         await handleError(interaction, lang, error, 'handlePluginInstall');
+    } finally {
+        if (typeof keepLock !== 'undefined' && !keepLock && typeof updateLock?.token !== 'undefined') {
+            releaseUpdateLock(updateLock.token);
+        }
     }
 }
 
