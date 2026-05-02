@@ -1,6 +1,6 @@
 {
   "name": "wosland-bot",
-  "version": "1.0.33",
+  "version": "1.0.34",
   "description": "whiteout survival discord bot",
   "main": "src/index.js",
   "scripts": {

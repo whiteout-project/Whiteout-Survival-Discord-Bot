@@ -472,9 +472,10 @@ async function fetchRegistry() {
  * @param {Object} registrar - Register functions from index.js
  * @returns {Promise<{ success: boolean, message: string }>}
  */
-async function installPlugin(pluginName, registrar) {
+async function installPlugin(pluginName, registrar, options = {}) {
     const os = require('os');
     const { execSync } = require('child_process');
+    const { beforeRegister = null } = options;
 
     try {
         if (!/^[a-zA-Z0-9_-]+$/.test(pluginName)) {
@@ -558,6 +559,10 @@ async function installPlugin(pluginName, registrar) {
             }
         }
 
+        if (typeof beforeRegister === 'function') {
+            await beforeRegister(destDir);
+        }
+
         const manifest = JSON.parse(fs.readFileSync(path.join(destDir, 'plugin.json'), 'utf8'));
         const validation = validateManifest(manifest, destDir);
         if (!validation.valid) {
@@ -635,19 +640,19 @@ async function updatePlugin(pluginName, registrar) {
     }
 
     loadedPlugins.delete(pluginName);
-    const result = await installPlugin(pluginName, registrar);
-
-    // Restore staged files into the freshly installed plugin directory
-    if (fs.existsSync(stageDir)) {
-        try {
-            if (result.success && fs.existsSync(pluginDir)) {
-                copyDirRecursive(stageDir, pluginDir);
+    const result = await installPlugin(pluginName, registrar, {
+        beforeRegister: async (destDir) => {
+            if (!fs.existsSync(stageDir) || !fs.existsSync(destDir)) return;
+            try {
+                copyDirRecursive(stageDir, destDir);
+            } catch (e) {
+                console.warn(`[PLUGINS] Warning: could not restore preserved data for ${pluginName}: ${e.message}`);
             }
-        } catch (e) {
-            console.warn(`[PLUGINS] Warning: could not restore preserved data for ${pluginName}: ${e.message}`);
-        } finally {
-            try { fs.rmSync(stageDir, { recursive: true, force: true }); } catch { /* best-effort cleanup */ }
         }
+    });
+
+    if (fs.existsSync(stageDir)) {
+        try { fs.rmSync(stageDir, { recursive: true, force: true }); } catch { /* best-effort cleanup */ }
     }
 
     return result;
