@@ -670,20 +670,6 @@ class NotificationScheduler {
                 nextTrigger          // next_trigger
             );
 
-            // Log successful notification
-            systemLogQueries.addLog(
-                'info',
-                `Notification sent: ${notification.name}`,
-                JSON.stringify({
-                    notification_id: notification.id,
-                    notification_name: notification.name,
-                    type: notification.guild_id ? 'server' : 'private',
-                    repeat: notification.repeat_status === 1,
-                    next_trigger: nextTrigger,
-                    function: 'NotificationScheduler.handleNotificationCompletion'
-                })
-            );
-
             // Remove from scheduled map (will be re-added if repeating)
             this.scheduledNotifications.delete(notification.id);
 

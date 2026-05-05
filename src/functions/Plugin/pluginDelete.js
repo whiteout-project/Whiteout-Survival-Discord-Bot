@@ -8,13 +8,17 @@ const {
     TextDisplayBuilder,
     SectionBuilder,
     SeparatorBuilder,
-    SeparatorSpacingSize,
-    ActionRowBuilder
+    SeparatorSpacingSize
 } = require('discord.js');
 const { getUserInfo, handleError, assertUserMatches, updateComponentsV2AfterSeparator } = require('../utility/commonFunctions');
 const { getComponentEmoji, getEmojiMapForUser } = require('../utility/emojis');
 const { createUniversalPaginationButtons } = require('../Pagination/universalPagination');
 const { PLUGINS_DIR, loadedPlugins } = require('./pluginsLoader');
+const {
+    acquireUpdateLock,
+    releaseUpdateLock,
+    formatActiveUpdateMessage
+} = require('../Settings/updateCoordinator');
 const i18n = require('../../i18n');
 
 const ITEMS_PER_PAGE = 5;
@@ -207,39 +211,31 @@ async function handlePluginRemove(interaction) {
 
         const pluginLang = lang.plugins;
         const userId = interaction.user.id;
+        const updateLock = acquireUpdateLock(`plugin remove: ${pluginName}`);
+        if (!updateLock.acquired) {
+            return await interaction.reply({
+                content: formatActiveUpdateMessage(updateLock.active),
+                ephemeral: true
+            });
+        }
+
+        let keepLock = false;
         await interaction.deferUpdate();
 
         // Remove the plugin
         const result = global.pluginManager.remove(pluginName);
 
-        let resultText;
-        let color;
-        if (result.success) {
-            resultText = pluginLang.content.removeSuccess.replace('{name}', pluginName);
-            color = 0x2ecc71;
-        } else {
-            resultText = pluginLang.content.removeFailed
+        const resultText = result.success
+            ? pluginLang.content.removeSuccess.replace('{name}', pluginName)
+            : pluginLang.content.removeFailed
                 .replace('{name}', pluginName)
                 .replace('{error}', result.message);
-            color = 0xff0000;
-        }
+        const color = result.success ? 0x2ecc71 : 0xff0000;
 
         const resultContainer = new ContainerBuilder()
             .setAccentColor(color)
             .addTextDisplayComponents(
                 new TextDisplayBuilder().setContent(resultText)
-            )
-            .addSeparatorComponents(
-                new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true)
-            )
-            .addActionRowComponents(
-                new ActionRowBuilder().addComponents(
-                    new ButtonBuilder()
-                        .setCustomId(`plugins_delete_menu_${userId}`)
-                        .setLabel(pluginLang.buttons.deleteMenu)
-                        .setStyle(ButtonStyle.Secondary)
-                        .setEmoji(getComponentEmoji(getEmojiMapForUser(userId), '1018'))
-                )
             );
 
         const currentComponents = interaction.message.components;
@@ -251,8 +247,17 @@ async function handlePluginRemove(interaction) {
             flags: MessageFlags.IsComponentsV2
         });
 
+        if (result.success && typeof global.restartBot === 'function') {
+            keepLock = true;
+            setTimeout(() => global.restartBot(), 2000);
+        }
+
     } catch (error) {
         await handleError(interaction, lang, error, 'handlePluginRemove');
+    } finally {
+        if (typeof keepLock !== 'undefined' && !keepLock && typeof updateLock?.token !== 'undefined') {
+            releaseUpdateLock(updateLock.token);
+        }
     }
 }
 
@@ -298,6 +303,19 @@ function unloadPlugin(pluginName, registrar) {
     }
 
     i18n.removePluginLocales(pluginName);
+
+    // Close and evict ALL remaining cached modules under this plugin's directory.
+    const pluginDir = path.resolve(PLUGINS_DIR, pluginName);
+    const pluginDirPrefix = pluginDir.toLowerCase().replace(/\\/g, '/');
+    for (const [modulePath, cachedModule] of Object.entries(require.cache)) {
+        const normalizedPath = modulePath.toLowerCase().replace(/\\/g, '/');
+        if (normalizedPath.startsWith(pluginDirPrefix + '/') || normalizedPath === pluginDirPrefix) {
+            if (cachedModule?.exports && typeof cachedModule.exports.close === 'function') {
+                try { cachedModule.exports.close(); } catch { /* best-effort */ }
+            }
+            delete require.cache[modulePath];
+        }
+    }
 
     loadedPlugins.delete(pluginName);
     console.log(`[PLUGINS] Unloaded: ${pluginName}`);

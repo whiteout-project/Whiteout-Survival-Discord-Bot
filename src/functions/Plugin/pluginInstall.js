@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const https = require('https');
+const { acquire7z } = require('../utility/ensure7zip');
 const {
     ButtonBuilder,
     ButtonStyle,
@@ -9,8 +10,7 @@ const {
     TextDisplayBuilder,
     SectionBuilder,
     SeparatorBuilder,
-    SeparatorSpacingSize,
-    ActionRowBuilder
+    SeparatorSpacingSize
 } = require('discord.js');
 const { getUserInfo, handleError, assertUserMatches, updateComponentsV2AfterSeparator } = require('../utility/commonFunctions');
 const { getComponentEmoji, getEmojiMapForUser } = require('../utility/emojis');
@@ -18,6 +18,11 @@ const { createUniversalPaginationButtons } = require('../Pagination/universalPag
 const {
     PLUGINS_DIR, loadedPlugins, validateManifest, registerPluginModules
 } = require('./pluginsLoader');
+const {
+    acquireUpdateLock,
+    releaseUpdateLock,
+    formatActiveUpdateMessage
+} = require('../Settings/updateCoordinator');
 const i18n = require('../../i18n');
 
 // ============================================================
@@ -106,6 +111,40 @@ function copyDirRecursive(src, dest) {
         if (entry.isDirectory()) {
             copyDirRecursive(srcPath, destPath);
         } else {
+            fs.copyFileSync(srcPath, destPath);
+        }
+    }
+}
+
+/** File extensions that must survive a plugin update (database files only).
+ *  WAL/SHM files are excluded — the plugin is unloaded before staging so SQLite
+ *  checkpoints all pending WAL data into the .db file before it is copied). */
+const PRESERVE_EXTENSIONS = new Set(['.db', '.sqlite']);
+/** Subdirectory names to preserve wholesale across plugin updates (downloaded binaries, user data). */
+const PRESERVE_DIR_NAMES = new Set(['bin', 'data']);
+
+/**
+ * Recursively scans a plugin directory and copies files/dirs that must survive updates
+ * to a staging directory, preserving relative paths.
+ * @param {string} baseDir - Root plugin directory
+ * @param {string} currentDir - Current scan directory
+ * @param {string} stageDir - Staging destination
+ */
+function scanAndStagePluginData(baseDir, currentDir, stageDir) {
+    if (!fs.existsSync(currentDir)) return;
+    const entries = fs.readdirSync(currentDir, { withFileTypes: true });
+    for (const entry of entries) {
+        const srcPath = path.join(currentDir, entry.name);
+        const relPath = path.relative(baseDir, srcPath);
+        const destPath = path.join(stageDir, relPath);
+        if (entry.isDirectory()) {
+            if (PRESERVE_DIR_NAMES.has(entry.name)) {
+                copyDirRecursive(srcPath, destPath);
+            } else {
+                scanAndStagePluginData(baseDir, srcPath, stageDir);
+            }
+        } else if (PRESERVE_EXTENSIONS.has(path.extname(entry.name))) {
+            fs.mkdirSync(path.dirname(destPath), { recursive: true });
             fs.copyFileSync(srcPath, destPath);
         }
     }
@@ -348,6 +387,15 @@ async function handlePluginInstall(interaction) {
 
         const pluginLang = lang.plugins;
         const userId = interaction.user.id;
+        const updateLock = acquireUpdateLock(`plugin install: ${pluginName}`);
+        if (!updateLock.acquired) {
+            return await interaction.reply({
+                content: formatActiveUpdateMessage(updateLock.active),
+                ephemeral: true
+            });
+        }
+
+        let keepLock = false;
         await interaction.deferUpdate();
 
         // Show installing status as section
@@ -368,37 +416,19 @@ async function handlePluginInstall(interaction) {
         // Install the plugin
         const result = await global.pluginManager.install(pluginName);
 
-        let resultText;
-        let color;
-        if (result.success) {
-            resultText = pluginLang.content.installSuccess.replace('{name}', pluginName);
-            color = 0x2ecc71;
-        } else {
-            resultText = pluginLang.content.installFailed
+        const resultText = result.success
+            ? pluginLang.content.installSuccess.replace('{name}', pluginName)
+            : pluginLang.content.installFailed
                 .replace('{name}', pluginName)
                 .replace('{error}', result.message);
-            color = 0xff0000;
-        }
+        const color = result.success ? 0x2ecc71 : 0xff0000;
 
         const resultContainer = new ContainerBuilder()
             .setAccentColor(color)
             .addTextDisplayComponents(
                 new TextDisplayBuilder().setContent(resultText)
-            )
-            .addSeparatorComponents(
-                new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true)
-            )
-            .addActionRowComponents(
-                new ActionRowBuilder().addComponents(
-                    new ButtonBuilder()
-                        .setCustomId(`plugins_install_menu_${userId}`)
-                        .setLabel(pluginLang.buttons.backToInstall)
-                        .setStyle(ButtonStyle.Secondary)
-                        .setEmoji(getComponentEmoji(getEmojiMapForUser(userId), '1018'))
-                )
             );
 
-        // Can't use updateComponentsV2AfterSeparator here since the message was already modified
         // Use the same structure: main container + separator + result
         const currentComponents = interaction.message.components;
         const mainContainer = currentComponents[0];
@@ -409,8 +439,17 @@ async function handlePluginInstall(interaction) {
             flags: MessageFlags.IsComponentsV2
         });
 
+        if (result.success && typeof global.restartBot === 'function') {
+            keepLock = true;
+            setTimeout(() => global.restartBot(), 2000);
+        }
+
     } catch (error) {
         await handleError(interaction, lang, error, 'handlePluginInstall');
+    } finally {
+        if (typeof keepLock !== 'undefined' && !keepLock && typeof updateLock?.token !== 'undefined') {
+            releaseUpdateLock(updateLock.token);
+        }
     }
 }
 
@@ -433,9 +472,10 @@ async function fetchRegistry() {
  * @param {Object} registrar - Register functions from index.js
  * @returns {Promise<{ success: boolean, message: string }>}
  */
-async function installPlugin(pluginName, registrar) {
+async function installPlugin(pluginName, registrar, options = {}) {
     const os = require('os');
     const { execSync } = require('child_process');
+    const { beforeRegister = null } = options;
 
     try {
         if (!/^[a-zA-Z0-9_-]+$/.test(pluginName)) {
@@ -469,17 +509,23 @@ async function installPlugin(pluginName, registrar) {
         if (fs.existsSync(extractDir)) fs.rmSync(extractDir, { recursive: true, force: true });
         fs.mkdirSync(extractDir, { recursive: true });
 
-        const platform = os.platform();
+        const { binPath: sevenZipPath, cleanupPath: sevenZipCleanup } = await acquire7z(os.tmpdir());
+        if (!sevenZipPath) {
+            if (fs.existsSync(extractDir)) fs.rmSync(extractDir, { recursive: true, force: true });
+            if (fs.existsSync(zipPath)) fs.unlinkSync(zipPath);
+            return { success: false, message: 'Could not locate 7-Zip binary for extraction.' };
+        }
+
         try {
-            if (platform === 'win32') {
-                execSync(`powershell -Command "Expand-Archive -Path '${zipPath}' -DestinationPath '${extractDir}' -Force"`, { stdio: 'pipe' });
-            } else {
-                execSync(`unzip -q "${zipPath}" -d "${extractDir}"`, { stdio: 'pipe' });
-            }
+            execSync(`"${sevenZipPath}" x "${zipPath}" -o"${extractDir}" -y`, { stdio: 'pipe' });
         } catch (e) {
             if (fs.existsSync(extractDir)) fs.rmSync(extractDir, { recursive: true, force: true });
             if (fs.existsSync(zipPath)) fs.unlinkSync(zipPath);
             return { success: false, message: `Failed to extract plugin: ${e.message}` };
+        } finally {
+            if (sevenZipCleanup && fs.existsSync(sevenZipCleanup)) {
+                try { fs.unlinkSync(sevenZipCleanup); } catch { /* best-effort cleanup */ }
+            }
         }
 
         let pluginRoot = extractDir;
@@ -511,6 +557,10 @@ async function installPlugin(pluginName, registrar) {
             } catch (e) {
                 console.warn(`[PLUGINS] Warning: dependency install for ${pluginName} failed: ${e.message}`);
             }
+        }
+
+        if (typeof beforeRegister === 'function') {
+            await beforeRegister(destDir);
         }
 
         const manifest = JSON.parse(fs.readFileSync(path.join(destDir, 'plugin.json'), 'utf8'));
@@ -558,23 +608,54 @@ async function checkPluginUpdates() {
 }
 
 /**
- * Updates a specific plugin to the latest version from the registry
+ * Updates a specific plugin to the latest version from the registry.
+ * Unloads the plugin first (closing DB connections so WAL is checkpointed),
+ * then stages database files, wipes the directory, and reinstalls.
  * @param {string} pluginName - Plugin name to update
  * @param {Object} registrar - Register/unregister functions
  * @returns {Promise<{ success: boolean, message: string }>}
  */
 async function updatePlugin(pluginName, registrar) {
+    const os = require('os');
     const { unloadPlugin } = require('./pluginDelete');
 
+    const pluginDir = path.join(PLUGINS_DIR, pluginName);
+    const stageDir = path.join(os.tmpdir(), `wos_plugin_${pluginName}_preserve_${Date.now()}`);
+
+    // Unload the plugin first so that any open SQLite connections are closed
+    // and WAL data is checkpointed back into the .db file before we stage it.
     unloadPlugin(pluginName, registrar);
 
-    const pluginDir = path.join(PLUGINS_DIR, pluginName);
+    // Stage important files after unload (DB connections closed = WAL flushed to .db)
+    if (fs.existsSync(pluginDir)) {
+        try {
+            scanAndStagePluginData(pluginDir, pluginDir, stageDir);
+        } catch (e) {
+            console.warn(`[PLUGINS] Warning: could not stage data for ${pluginName}: ${e.message}`);
+        }
+    }
+
     if (fs.existsSync(pluginDir)) {
         fs.rmSync(pluginDir, { recursive: true, force: true });
     }
 
     loadedPlugins.delete(pluginName);
-    return await installPlugin(pluginName, registrar);
+    const result = await installPlugin(pluginName, registrar, {
+        beforeRegister: async (destDir) => {
+            if (!fs.existsSync(stageDir) || !fs.existsSync(destDir)) return;
+            try {
+                copyDirRecursive(stageDir, destDir);
+            } catch (e) {
+                console.warn(`[PLUGINS] Warning: could not restore preserved data for ${pluginName}: ${e.message}`);
+            }
+        }
+    });
+
+    if (fs.existsSync(stageDir)) {
+        try { fs.rmSync(stageDir, { recursive: true, force: true }); } catch { /* best-effort cleanup */ }
+    }
+
+    return result;
 }
 
 module.exports = {

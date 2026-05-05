@@ -160,6 +160,17 @@ module.exports = {
             console.error('Failed to initialize auto-update scheduler:', error);
         }
 
+        if (!client._processRecoveryInitialized) {
+            try {
+                await processRecovery.initialize(client);
+                client._processRecoveryInitialized = true;
+            } catch (error) {
+                console.error('Failed to initialize process recovery:', error);
+            }
+        } else {
+            processRecovery.client = client;
+        }
+
         // Parallel async initializations (network/DB bound, independent of each other)
         const parallelTasks = [
             playerApiManager.checkAvailability()
@@ -184,18 +195,5 @@ module.exports = {
         await handlePostUpdateRestart(client).catch(error =>
             console.error('Failed to handle post-update restart message:', error.message)
         );
-
-        // Process recovery — runs after other systems are ready
-        if (!client._processRecoveryInitialized) {
-            try {
-                await processRecovery.initialize(client);
-                client._processRecoveryInitialized = true;
-            } catch (error) {
-                console.error('Failed to initialize process recovery:', error);
-            }
-        } else {
-            processRecovery.client = client;
-        }
-
     },
 };

@@ -65,6 +65,17 @@ On first run, the bot will prompt you to enter your Discord bot token. It will b
 ---
 
 
+### Privileged Gateway Intents
+
+The bot requires two **privileged intents** that must be enabled manually in the [Discord Developer Portal](https://discord.com/developers/applications):
+
+1. Go to your application → **Bot** → **Privileged Gateway Intents**
+2. Enable **Server Members Intent**
+3. Enable **Message Content Intent**
+4. Click **Save Changes**
+
+> Without these intents enabled, the bot will crash on startup with an error about disallowed intents.
+
 ### Bot Permissions
 
 When inviting the bot to your server, ensure it has these permissions:

@@ -488,6 +488,9 @@ const allianceQueries = {
     // Get all alliances
     getAllAlliances: db.prepare('SELECT * FROM alliance ORDER BY priority'),
 
+    // Count all alliances
+    countAlliances: db.prepare('SELECT COUNT(*) AS count FROM alliance'),
+
     // Update alliance
     updateAlliance: db.prepare(`
         UPDATE alliance SET priority = ?, name = ?, guide_id = ?, channel_id = ?, 
@@ -634,6 +637,9 @@ const playerQueries = {
     // Get all players
     getAllPlayers: db.prepare('SELECT * FROM players'),
 
+    // Count all players
+    countPlayers: db.prepare('SELECT COUNT(*) AS count FROM players'),
+
     // Update player rich status
     updatePlayerRichStatus: db.prepare('UPDATE players SET is_rich = ? WHERE fid = ?'),
 
@@ -734,6 +740,9 @@ const giftCodeQueries = {
 
     // Get all gift codes
     getAllGiftCodes: db.prepare('SELECT * FROM gift_codes ORDER BY date DESC'),
+
+    // Count all gift codes
+    countGiftCodes: db.prepare('SELECT COUNT(*) AS count FROM gift_codes'),
 
     // Update gift code status
     updateGiftCodeStatus: db.prepare('UPDATE gift_codes SET status = ? WHERE gift_code = ?'),
@@ -848,6 +857,9 @@ const notificationQueries = {
 
     // Get active notifications
     getActiveNotifications: db.prepare('SELECT * FROM notifications WHERE is_active = 1'),
+
+    // Count active notifications
+    countActiveNotifications: db.prepare('SELECT COUNT(*) AS count FROM notifications WHERE is_active = 1'),
 
     // Get private notifications (where guild_id is NULL or empty)
     getPrivateNotifications: db.prepare("SELECT * FROM notifications WHERE guild_id IS NULL OR guild_id = ''"),
@@ -974,6 +986,12 @@ const systemLogQueries = {
     // Get all system logs
     getAllLogs: db.prepare('SELECT * FROM system_logs ORDER BY time DESC'),
 
+    // Paginated system logs
+    getLogsPage: db.prepare('SELECT * FROM system_logs ORDER BY time DESC LIMIT ? OFFSET ?'),
+    getLogsByTypePage: db.prepare('SELECT * FROM system_logs WHERE action_type = ? ORDER BY time DESC LIMIT ? OFFSET ?'),
+    countAllLogs: db.prepare('SELECT COUNT(*) AS total FROM system_logs'),
+    countLogsByType: db.prepare('SELECT COUNT(*) AS total FROM system_logs WHERE action_type = ?'),
+
     // Get recent logs (limit)
     getRecentLogs: db.prepare('SELECT * FROM system_logs ORDER BY time DESC LIMIT ?'),
 
@@ -1018,6 +1036,9 @@ const processQueries = {
         WHERE status = 'active' 
         ORDER BY priority ASC
     `),
+
+    // Count active processes
+    countActiveProcesses: db.prepare("SELECT COUNT(*) AS count FROM processes WHERE status = 'active'"),
 
     // Get paused processes ready to resume (preempted processes that are now queued)
     getPausedProcessesReadyToResume: db.prepare(`
@@ -1285,6 +1306,7 @@ module.exports = {
             allianceQueries.addAlliance.run(priority, name, guideId, channelId, interval, autoRedeem, createdBy),
         getAllianceById: (id) => allianceQueries.getAllianceById.get(id),
         getAllAlliances: () => allianceQueries.getAllAlliances.all(),
+        countAlliances: () => allianceQueries.countAlliances.get()?.count || 0,
         getAlliancesByIds: (ids) => allianceQueries.getAlliancesByIds.all(JSON.stringify(ids)),
         updateAlliance: (priority, name, guideId, channelId, interval, autoRedeem, id) =>
             allianceQueries.updateAlliance.run(priority, name, guideId, channelId, interval, autoRedeem, id),
@@ -1349,6 +1371,7 @@ module.exports = {
             playerQueries.deletePlayer.run(fid);
         },
         getAllPlayers: () => playerQueries.getAllPlayers.all(),
+        countPlayers: () => playerQueries.countPlayers.get()?.count || 0,
         getPlayersForExport: (filters) => {
             // Build dynamic SQL query based on provided filters
             let query = 'SELECT p.fid, p.nickname, p.furnace_level, a.name as alliance_name, p.state FROM players p LEFT JOIN alliance a ON p.alliance_id = a.id WHERE p.exist < 3';
@@ -1414,6 +1437,7 @@ module.exports = {
         addGiftCode: createGiftCode,
         getGiftCode: (giftCode) => giftCodeQueries.getGiftCode.get(giftCode),
         getAllGiftCodes: () => giftCodeQueries.getAllGiftCodes.all(),
+        countGiftCodes: () => giftCodeQueries.countGiftCodes.get()?.count || 0,
         updateGiftCodeStatus: (status, giftCode) => giftCodeQueries.updateGiftCodeStatus.run(status, giftCode),
         updateLastValidated: (giftCode) => giftCodeQueries.updateLastValidated.run(getCurrentTimestamp(), giftCode),
         getCodesNeedingValidation: () => giftCodeQueries.getCodesNeedingValidation.all(),
@@ -1467,6 +1491,7 @@ module.exports = {
         getAllNotifications: () => notificationQueries.getAllNotifications.all(),
         getNotificationsByGuild: (guildId) => notificationQueries.getNotificationsByGuild.all(guildId),
         getActiveNotifications: () => notificationQueries.getActiveNotifications.all(),
+        countActiveNotifications: () => notificationQueries.countActiveNotifications.get()?.count || 0,
         getPrivateNotifications: () => notificationQueries.getPrivateNotifications.all(),
         getActivePrivateNotificationsByUser: (userId) => notificationQueries.getActivePrivateNotificationsByUser.all(userId),
         getActivePrivateNotificationsExcludingUsers: (userIds) => notificationQueries.getActivePrivateNotificationsExcludingUsers.all(JSON.stringify(userIds)),
@@ -1514,6 +1539,10 @@ module.exports = {
             systemLogQueries.addLog.run(actionType, action, extraDetails, getCurrentTimestamp()),
         getLogsByActionType: (actionType) => systemLogQueries.getLogsByActionType.all(actionType),
         getAllLogs: () => systemLogQueries.getAllLogs.all(),
+        getLogsPage: (limit, offset) => systemLogQueries.getLogsPage.all(limit, offset),
+        getLogsByTypePage: (actionType, limit, offset) => systemLogQueries.getLogsByTypePage.all(actionType, limit, offset),
+        countAllLogs: () => systemLogQueries.countAllLogs.get().total,
+        countLogsByType: (actionType) => systemLogQueries.countLogsByType.get(actionType).total,
         getRecentLogs: (limit) => systemLogQueries.getRecentLogs.all(limit),
         deleteLogsOlderThan: (isoTimestamp) => systemLogQueries.deleteLogsOlderThan.run(isoTimestamp)
     },
@@ -1528,6 +1557,7 @@ module.exports = {
         getProcessesByCreator: (createdBy) => processQueries.getProcessesByCreator.all(createdBy),
         getNextQueuedProcess: () => processQueries.getNextQueuedProcess.get(),
         getActiveProcesses: () => processQueries.getActiveProcesses.all(),
+        countActiveProcesses: () => processQueries.countActiveProcesses.get()?.count || 0,
         getPausedProcessesReadyToResume: () => processQueries.getPausedProcessesReadyToResume.all(Date.now()),
         getProcessesByPriorityRange: (minPriority, maxPriority) => processQueries.getProcessesByPriorityRange.all(minPriority, maxPriority),
         updateProcessStatus: (id, status) => processQueries.updateProcessStatus.run(status, getCurrentTimestamp(), id),

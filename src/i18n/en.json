@@ -1816,9 +1816,9 @@
 			"noAvailable": "No additional plugins available.",
 			"installing": "Installing **{name}**...",
 			"removing": "Removing **{name}**...",
-			"installSuccess": "{emoji.1004} **{name}** installed! Restart the bot to register its slash commands.",
+			"installSuccess": "{emoji.1004} **{name}** installed! The bot is restarting to register its slash commands...",
 			"installFailed": "{emoji.1050} Couldn't install **{name}**: {error}",
-			"removeSuccess": "{emoji.1004} **{name}** removed.",
+			"removeSuccess": "{emoji.1004} **{name}** removed. The bot is restarting...",
 			"removeFailed": "{emoji.1050} Couldn't remove **{name}**: {error}",
 			"registryError": "{emoji.1050} Couldn't reach the plugin registry. Check your internet connection.",
 			"loading": "Loading plugins..."
@@ -1946,7 +1946,12 @@
 				"titleNotify": "## {emoji.1022} New Update Available!",
 				"version": "**v{currentVersion}** → **v{latestVersion}**",
 				"autoApply": "-# Applying update and restarting now",
-				"notifyOnly": "-# Use the Update panel to apply it"
+				"notifyOnly": "-# Use the Update panel to apply it",
+				"pluginTitle": "## {emoji.1033} Plugin Updates Applied!",
+				"pluginTitleNotify": "## {emoji.1022} Plugin Updates Available!",
+				"pluginApplied": "-# The bot is restarting to load the new versions",
+				"pluginNotifyOnly": "-# Use the Update panel in /panel to apply them",
+				"pluginItem": "- **{name}**: v{current} → v{latest}"
 			}
 		},
 		"language": {

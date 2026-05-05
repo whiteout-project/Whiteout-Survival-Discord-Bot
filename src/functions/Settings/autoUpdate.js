@@ -13,13 +13,29 @@ const {
 const { settingsQueries, adminQueries } = require('../utility/database');
 const { getUserInfo, handleError, assertUserMatches, updateComponentsV2AfterSeparator } = require('../utility/commonFunctions');
 const { getComponentEmoji, getEmojiMapForUser, replaceEmojiPlaceholders } = require('../utility/emojis');
+const {
+    acquireUpdateLock,
+    releaseUpdateLock,
+    formatActiveUpdateMessage
+} = require('./updateCoordinator');
 
-const PENDING_UPDATE_PATH = path.join(__dirname, '..', '..', 'temp', 'pending_update.json');
+const PENDING_UPDATE_PATH = path.join(__dirname, '..', '..', 'database', 'pending_update.json');
 const AUTO_UPDATE_INTERVAL_MS = 5 * 60 * 1000;
 const DOCKER_SOCKET = '/var/run/docker.sock';
 
 let autoUpdateInterval = null;
 let lastNotifiedVersion = null;
+/** Tracks which plugin versions have already triggered a notification to avoid DM spam */
+const lastNotifiedPluginVersions = new Map();
+
+function savePendingUpdateReference(payload) {
+    try {
+        fs.mkdirSync(path.dirname(PENDING_UPDATE_PATH), { recursive: true });
+        fs.writeFileSync(PENDING_UPDATE_PATH, JSON.stringify(payload));
+    } catch (error) {
+        console.error('Failed to save pending update reference:', error.message);
+    }
+}
 
 // -------------------------------------------------------
 // Docker Engine API (direct Unix socket communication)
@@ -460,6 +476,15 @@ async function handleAutoUpdateApply(interaction) {
         }
 
         const settingsLang = lang.settings?.autoUpdate || {};
+        const updateLock = acquireUpdateLock('settings bot update');
+        if (!updateLock.acquired) {
+            return await interaction.reply({
+                content: formatActiveUpdateMessage(updateLock.active),
+                ephemeral: true
+            });
+        }
+
+        let keepLock = false;
 
         // Defer the reply since update will take time
         await interaction.deferUpdate();
@@ -503,16 +528,11 @@ async function handleAutoUpdateApply(interaction) {
                     flags: MessageFlags.IsComponentsV2
                 });
 
-                // Save pending update reference for post-restart message
-                try {
-                    fs.writeFileSync(PENDING_UPDATE_PATH, JSON.stringify({
-                        channelId: interaction.channelId,
-                        messageId: interaction.message.id,
-                        userId: interaction.user.id
-                    }));
-                } catch (writeError) {
-                    console.error('Failed to save pending update reference:', writeError.message);
-                }
+                savePendingUpdateReference({
+                    channelId: interaction.channelId,
+                    messageId: interaction.message.id,
+                    userId: interaction.user.id
+                });
 
                 // Pull + recreate -- this will kill this container
                 result = await applyDockerUpdate();
@@ -520,6 +540,7 @@ async function handleAutoUpdateApply(interaction) {
                     throw new Error(result.message || 'Docker update failed');
                 }
                 // If we reach here, the container is about to be replaced
+                keepLock = true;
                 return;
             } catch (error) {
                 // Show failure if Docker update failed
@@ -558,7 +579,7 @@ async function handleAutoUpdateApply(interaction) {
             const hasParentWrapper = process.env.FULL_SELF_UPDATE === '1';
 
             // Show appropriate success message
-            const isAutoRestart = hasParentWrapper || global.isDocker;
+            const isAutoRestart = hasParentWrapper;
             const successText = isAutoRestart
                 ? `${settingsLang.content.title}\n${settingsLang.content.success}`
                 : `${settingsLang.content.title}\n${settingsLang.content.description.stopping}`;
@@ -576,17 +597,23 @@ async function handleAutoUpdateApply(interaction) {
                 flags: MessageFlags.IsComponentsV2
             });
 
-            if (hasParentWrapper || global.isDocker) {
-                // Parent wrapper or Docker -- save message ref for post-restart update
-                try {
-                    fs.writeFileSync(PENDING_UPDATE_PATH, JSON.stringify({
-                        channelId: interaction.channelId,
-                        messageId: interaction.message.id,
-                        userId: interaction.user.id
-                    }));
-                } catch (writeError) {
-                    console.error('Failed to save pending update reference:', writeError.message);
-                }
+            if (result.restartHandled) {
+                keepLock = true;
+                savePendingUpdateReference({
+                    channelId: interaction.channelId,
+                    messageId: interaction.message.id,
+                    userId: interaction.user.id
+                });
+                return;
+            }
+
+            if (hasParentWrapper) {
+                keepLock = true;
+                savePendingUpdateReference({
+                    channelId: interaction.channelId,
+                    messageId: interaction.message.id,
+                    userId: interaction.user.id
+                });
 
                 // Restart the bot after a short delay
                 setTimeout(async () => {
@@ -634,6 +661,10 @@ async function handleAutoUpdateApply(interaction) {
 
     } catch (error) {
         await handleError(interaction, lang, error, 'handleAutoUpdateApply');
+    } finally {
+        if (typeof keepLock !== 'undefined' && !keepLock && typeof updateLock?.token !== 'undefined') {
+            releaseUpdateLock(updateLock.token);
+        }
     }
 }
 
@@ -659,6 +690,15 @@ async function handleAutoUpdatePlugin(interaction) {
         }
 
         const settingsLang = lang.settings?.autoUpdate || {};
+        const updateLock = acquireUpdateLock(`plugin update: ${pluginName}`);
+        if (!updateLock.acquired) {
+            return await interaction.reply({
+                content: formatActiveUpdateMessage(updateLock.active),
+                ephemeral: true
+            });
+        }
+
+        let keepLock = false;
         await interaction.deferUpdate();
 
         // Show updating status
@@ -679,24 +719,32 @@ async function handleAutoUpdatePlugin(interaction) {
         const result = await global.pluginManager.update(pluginName);
 
         const color = result.success ? 0x2ecc71 : 0xff0000;
+        const resultMessage = result.success
+            ? `${result.message}\n-# The bot is restarting to apply the update...`
+            : result.message;
+
         const resultContainer = new ContainerBuilder()
             .setAccentColor(color)
             .addTextDisplayComponents(
                 new TextDisplayBuilder().setContent(
-                    `${settingsLang.content.title}\n${result.message}`
-                )
-            )
-            .addSeparatorComponents(
-                new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true)
-            )
-            .addActionRowComponents(
-                new ActionRowBuilder().addComponents(
-                    new ButtonBuilder()
-                        .setCustomId(`auto_update_check_${interaction.user.id}`)
-                        .setLabel(settingsLang.buttons.back)
-                        .setStyle(ButtonStyle.Secondary)
+                    `${settingsLang.content.title}\n${resultMessage}`
                 )
             );
+
+        if (!result.success) {
+            resultContainer
+                .addSeparatorComponents(
+                    new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true)
+                )
+                .addActionRowComponents(
+                    new ActionRowBuilder().addComponents(
+                        new ButtonBuilder()
+                            .setCustomId(`auto_update_check_${interaction.user.id}`)
+                            .setLabel(settingsLang.buttons.back)
+                            .setStyle(ButtonStyle.Secondary)
+                    )
+                );
+        }
 
         const resultContent = updateComponentsV2AfterSeparator(interaction, [resultContainer]);
         await interaction.editReply({
@@ -704,8 +752,17 @@ async function handleAutoUpdatePlugin(interaction) {
             flags: MessageFlags.IsComponentsV2
         });
 
+        if (result.success && typeof global.restartBot === 'function') {
+            keepLock = true;
+            setTimeout(() => global.restartBot(), 2000);
+        }
+
     } catch (error) {
         await handleError(interaction, lang, error, 'handleAutoUpdatePlugin');
+    } finally {
+        if (typeof keepLock !== 'undefined' && !keepLock && typeof updateLock?.token !== 'undefined') {
+            releaseUpdateLock(updateLock.token);
+        }
     }
 }
 
@@ -876,6 +933,44 @@ async function notifyOwnerOfUpdate(client, latestVersion, willAutoApply, release
 }
 
 /**
+ * Sends a DM to the owner listing plugin updates.
+ * @param {import('discord.js').Client} client
+ * @param {{ name: string, current: string, latest: string }[]} updates
+ * @param {boolean} willAutoApply
+ */
+async function notifyOwnerOfPluginUpdates(client, updates, willAutoApply) {
+    const ownerId = findOwnerUserId();
+    if (!ownerId) return;
+
+    try {
+        const owner = await client.users.fetch(ownerId);
+        const { lang } = getUserInfo(ownerId);
+        const emojiMap = getEmojiMapForUser(ownerId);
+        const dmLang = lang.settings?.autoUpdate?.dm || {};
+
+        const title = willAutoApply ? (dmLang.pluginTitle || '## Plugin Updates Applied!') : (dmLang.pluginTitleNotify || '## Plugin Updates Available!');
+        const subtext = willAutoApply ? (dmLang.pluginApplied || '') : (dmLang.pluginNotifyOnly || '');
+        const itemTemplate = dmLang.pluginItem || '- **{name}**: v{current} → v{latest}';
+
+        const listText = updates
+            .map(u => itemTemplate.replace('{name}', u.name).replace('{current}', u.current).replace('{latest}', u.latest))
+            .join('\n');
+
+        const container = new ContainerBuilder()
+            .addTextDisplayComponents(new TextDisplayBuilder().setContent(replaceEmojiPlaceholders(title, emojiMap)))
+            .addTextDisplayComponents(new TextDisplayBuilder().setContent(listText));
+
+        if (subtext) {
+            container.addTextDisplayComponents(new TextDisplayBuilder().setContent(subtext));
+        }
+
+        await owner.send({ components: [container], flags: MessageFlags.IsComponentsV2 });
+    } catch (error) {
+        console.error('[AUTO-UPDATE] Failed to DM owner about plugin updates:', error.message);
+    }
+}
+
+/**
  * Starts the auto-update scheduler that checks for updates every 5 minutes.
  * Always runs regardless of auto_update setting.
  * - If auto_update = 1: DMs owner, then applies update and restarts
@@ -886,84 +981,153 @@ function startAutoUpdateScheduler(client) {
     stopAutoUpdateScheduler();
 
     autoUpdateInterval = setInterval(async () => {
+        let keepLock = false;
+        let updateLock = null;
         try {
-            let updateAvailable = false;
+            // ── 1. Check bot update availability ──────────────────────────
+            let botUpdateAvailable = false;
             let latestVersion = null;
             let releaseBody = null;
             let releaseAssets = null;
 
             if (hasDockerSocket()) {
-                // Docker mode: check via Docker Engine API
                 try {
                     const status = await checkDockerUpdate();
-                    updateAvailable = status.available;
+                    botUpdateAvailable = status.available;
                     latestVersion = status.latest;
                 } catch (error) {
                     console.error('[AUTO-UPDATE] Docker update check failed:', error.message);
-                    return;
+                    // Continue to plugin check even if Docker check fails
                 }
             } else {
-                // Non-Docker: check GitHub directly
-                if (typeof global.checkForUpdates !== 'function') return;
-                const updateInfo = await global.checkForUpdates();
-                if (!updateInfo?.available) return;
-                updateAvailable = true;
-                latestVersion = updateInfo.latest;
-                releaseBody = updateInfo.body;
-                releaseAssets = updateInfo.assets;
+                if (typeof global.checkForUpdates === 'function') {
+                    const updateInfo = await global.checkForUpdates();
+                    if (updateInfo?.available) {
+                        botUpdateAvailable = true;
+                        latestVersion = updateInfo.latest;
+                        releaseBody = updateInfo.body;
+                        releaseAssets = updateInfo.assets;
+                    }
+                }
             }
 
-            if (!updateAvailable || !latestVersion) return;
+            // ── 2. Check plugin update availability ───────────────────────
+            let newPluginUpdates = [];
+            if (typeof global.pluginManager?.checkUpdates === 'function') {
+                const { updates: pluginUpdates = [] } = await global.pluginManager.checkUpdates();
+                newPluginUpdates = pluginUpdates.filter(pu => lastNotifiedPluginVersions.get(pu.name) !== pu.latest);
+            }
+
+            const hasBotUpdate = botUpdateAvailable && latestVersion;
+            const hasPluginUpdates = newPluginUpdates.length > 0;
+            if (!hasBotUpdate && !hasPluginUpdates) return;
 
             const settings = settingsQueries.getSettings.get();
             const isAutoUpdateEnabled = settings?.auto_update ?? 1;
 
+            // ── 3. Notify-only mode ───────────────────────────────────────
             if (!isAutoUpdateEnabled) {
-                if (latestVersion === lastNotifiedVersion) return;
-                lastNotifiedVersion = latestVersion;
-                console.log(`[AUTO-UPDATE] New version v${latestVersion} available -- notifying owner (auto-apply disabled)`);
-                await notifyOwnerOfUpdate(client, latestVersion, false, releaseBody, releaseAssets);
-                return;
-            }
-
-            if (latestVersion === lastNotifiedVersion) return;
-            lastNotifiedVersion = latestVersion;
-
-            console.log(`[AUTO-UPDATE] New version v${latestVersion} found -- notifying owner and applying update...`);
-            await notifyOwnerOfUpdate(client, latestVersion, true, releaseBody, releaseAssets);
-
-            if (hasDockerSocket()) {
-                // Docker mode: pull and recreate via Docker Engine API
-                try {
-                    const result = await applyDockerUpdate();
-                    if (!result.success) {
-                        console.error('[AUTO-UPDATE] Docker update failed:', result.message);
-                    }
-                    // If successful, this container will be replaced
-                } catch (error) {
-                    console.error('[AUTO-UPDATE] Docker update failed:', error.message);
+                if (hasBotUpdate && latestVersion !== lastNotifiedVersion) {
+                    lastNotifiedVersion = latestVersion;
+                    console.log(`[AUTO-UPDATE] New version v${latestVersion} available -- notifying owner (auto-apply disabled)`);
+                    await notifyOwnerOfUpdate(client, latestVersion, false, releaseBody, releaseAssets);
+                }
+                if (hasPluginUpdates) {
+                    for (const pu of newPluginUpdates) lastNotifiedPluginVersions.set(pu.name, pu.latest);
+                    console.log(`[AUTO-UPDATE] Plugin updates available: ${newPluginUpdates.map(p => p.name).join(', ')} -- notifying owner`);
+                    await notifyOwnerOfPluginUpdates(client, newPluginUpdates, false);
                 }
                 return;
             }
 
-            // Non-Docker: apply via ZIP download
-            if (typeof global.applyUpdate !== 'function') return;
+            // ── 4. Auto-apply mode: plugins first, then bot update ────────
 
-            const result = await global.applyUpdate();
-            if (!result.success) {
-                console.error('[AUTO-UPDATE] Update failed:', result.message);
+            updateLock = acquireUpdateLock('scheduled auto-update');
+            if (!updateLock.acquired) {
+                console.log(`[AUTO-UPDATE] ${formatActiveUpdateMessage(updateLock.active)}`);
                 return;
             }
 
-            console.log('[AUTO-UPDATE] Update applied successfully -- restarting bot...');
+            // Apply available plugin updates before any restart
+            let pluginsUpdated = false;
+            if (hasPluginUpdates) {
+                for (const pu of newPluginUpdates) {
+                    lastNotifiedPluginVersions.set(pu.name, pu.latest);
+                    const result = await global.pluginManager.update(pu.name);
+                    if (result.success) {
+                        pluginsUpdated = true;
+                        console.log(`[AUTO-UPDATE] Plugin ${pu.name} updated to v${pu.latest}`);
+                    } else {
+                        console.error(`[AUTO-UPDATE] Plugin ${pu.name} update failed: ${result.message}`);
+                    }
+                }
+                // Notify owner about applied plugin updates
+                const appliedUpdates = newPluginUpdates.filter(pu => lastNotifiedPluginVersions.get(pu.name) === pu.latest);
+                if (appliedUpdates.length > 0) {
+                    await notifyOwnerOfPluginUpdates(client, appliedUpdates, true);
+                }
+            }
 
-            if (typeof global.restartBot === 'function') {
-                await global.restartBot();
-            } else {
-                process.exit(0);
+            // Apply bot update (includes restart — plugin files are already updated on disk)
+            if (hasBotUpdate && latestVersion !== lastNotifiedVersion) {
+                lastNotifiedVersion = latestVersion;
+                console.log(`[AUTO-UPDATE] New version v${latestVersion} found -- notifying and applying...`);
+                await notifyOwnerOfUpdate(client, latestVersion, true, releaseBody, releaseAssets);
+
+                if (hasDockerSocket()) {
+                    try {
+                        const result = await applyDockerUpdate();
+                        if (!result.success) {
+                            console.error('[AUTO-UPDATE] Docker update failed:', result.message);
+                            return;
+                        }
+                        keepLock = true;
+                    } catch (error) {
+                        console.error('[AUTO-UPDATE] Docker update failed:', error.message);
+                    }
+                    return;
+                }
+
+                if (typeof global.applyUpdate !== 'function') return;
+
+                const result = await global.applyUpdate();
+                if (!result.success) {
+                    console.error('[AUTO-UPDATE] Update failed:', result.message);
+                    return;
+                }
+
+                if (result.restartHandled) {
+                    console.log('[AUTO-UPDATE] Update applied successfully -- restart already scheduled...');
+                    keepLock = true;
+                    return;
+                }
+
+                console.log('[AUTO-UPDATE] Update applied successfully -- restarting bot...');
+                if (typeof global.restartBot === 'function') {
+                    keepLock = true;
+                    await global.restartBot();
+                } else {
+                    process.exit(0);
+                }
+                return;
+            }
+
+            // No bot update — restart only if plugins were updated
+            if (pluginsUpdated) {
+                console.log('[AUTO-UPDATE] Plugin updates applied -- restarting bot...');
+                if (typeof global.restartBot === 'function') {
+                    keepLock = true;
+                    await global.restartBot();
+                } else {
+                    process.exit(0);
+                }
             }
         } catch (error) {
             console.error('[AUTO-UPDATE] Scheduler error:', error.message);
+        } finally {
+            if (!keepLock && updateLock?.acquired && updateLock.token) {
+                releaseUpdateLock(updateLock.token);
+            }
         }
     }, AUTO_UPDATE_INTERVAL_MS);
 }

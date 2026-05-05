@@ -26,6 +26,14 @@ Both installers will:
 4. Prompt for your Discord bot token
 5. Pull the image and start the bot
 
+> **Important:** Before starting the bot, enable the required **Privileged Gateway Intents** in the [Discord Developer Portal](https://discord.com/developers/applications):
+> 1. Go to your application → **Bot** → **Privileged Gateway Intents**
+> 2. Enable **Server Members Intent**
+> 3. Enable **Message Content Intent**
+> 4. Save changes
+>
+> Without these, the bot will fail to connect.
+
 That's it. The bot is running and will auto-update itself.
 
 ---

@@ -1,4 +1,4 @@
-﻿const readline = require('readline');
+const readline = require('readline');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -18,9 +18,10 @@ global.isDocker = isDocker;
 // When running as the parent (no STARTER_CHILD env), spawn self
 // as a child process. This allows full restarts & self-updates
 // without killing the parent — the parent just respawns the child.
-// Docker handles restarts via restart policy -- skip the wrapper.
+// This stays active in Docker too, so normal updates restart the child
+// instead of terminating PID 1.
 // ============================================================
-if (!isDocker && !process.env.STARTER_CHILD) {
+if (!process.env.STARTER_CHILD) {
     // Detect old parent (pre-1.0.23): it sets FULL_SELF_UPDATE but not STARTER_CHILD.
     // Let the bot start so ready.js can DM the owner, then exit.
     if (process.env.FULL_SELF_UPDATE === '1') {
@@ -28,14 +29,34 @@ if (!isDocker && !process.env.STARTER_CHILD) {
     } else {
         const isDevMode = process.argv.includes('--dev');
         const userArgs = process.argv.slice(2); // args after "starter.js"
+        let activeChild = null;
+        let parentShuttingDown = false;
 
         // Ensure --expose-gc and --max-old-space-size are present
         const nodeFlags = [...process.execArgv];
         if (!nodeFlags.some(f => f.includes('expose-gc'))) nodeFlags.push('--expose-gc');
         if (!nodeFlags.some(f => f.includes('max-old-space-size'))) nodeFlags.push('--max-old-space-size=256');
 
+        function forwardSignal(signal) {
+            parentShuttingDown = true;
+
+            if (activeChild && !activeChild.killed) {
+                try {
+                    activeChild.kill(signal);
+                    return;
+                } catch (error) {
+                    console.warn(`[LAUNCHER] Failed to forward ${signal}: ${error.message}`);
+                }
+            }
+
+            process.exit(0);
+        }
+
+        process.on('SIGINT', () => forwardSignal('SIGINT'));
+        process.on('SIGTERM', () => forwardSignal('SIGTERM'));
+
         function spawnChild() {
-            const child = spawn(process.execPath, [...nodeFlags, __filename, ...userArgs], {
+            activeChild = spawn(process.execPath, [...nodeFlags, __filename, ...userArgs], {
                 stdio: 'inherit',
                 cwd: process.cwd(),
                 env: {
@@ -46,22 +67,25 @@ if (!isDocker && !process.env.STARTER_CHILD) {
                 }
             });
 
-            child.on('exit', (code) => {
+            activeChild.on('error', (error) => {
+                console.error('[LAUNCHER] Failed to spawn child process:', error);
+                process.exit(1);
+            });
+
+            activeChild.on('exit', (code, signal) => {
+                activeChild = null;
+
+                if (parentShuttingDown) {
+                    process.exit(code ?? 0);
+                }
                 if (code === 42) {
                     console.log('[LAUNCHER] Respawning with updated code...\n');
                     spawnChild();
                 } else if (code === 43) {
-                    // starter.js itself was updated — re-exec the parent so it loads the new file from disk
-                    console.log('[LAUNCHER] starter.js updated — re-launching from disk...\n');
-                    const freshEnv = { ...process.env };
-                    delete freshEnv.STARTER_CHILD;
-                    delete freshEnv.FULL_SELF_UPDATE;
-                    const fresh = spawn(process.execPath, [...process.execArgv, __filename, ...userArgs], {
-                        stdio: 'inherit',
-                        cwd: process.cwd(),
-                        env: freshEnv
-                    });
-                    fresh.on('exit', (c) => process.exit(c ?? 1));
+                    console.log('[LAUNCHER] starter.js updated — restarting child from disk...\n');
+                    spawnChild();
+                } else if (signal) {
+                    process.exit(1);
                 } else {
                     process.exit(code ?? 1);
                 }
@@ -95,6 +119,11 @@ if (!ALLOWED_NODE_MAJORS.includes(_currentNodeMajor)) {
 
 const GITHUB_REPO = 'whiteout-project/Whiteout-Survival-Discord-Bot';
 const GITHUB_API_URL = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`;
+const UPDATE_PROXY_URL = process.env.UPDATE_CHECK_PROXY_URL || 'https://wosland.com/api/updates/latest';
+const UPDATE_PROXY_TIMEOUT_MS = parseInt(process.env.UPDATE_PROXY_TIMEOUT_MS, 10) || 4000;
+const GITHUB_FALLBACK_INTERVAL_MS = 30 * 60 * 1000;
+let lastGitHubFallbackAttemptAt = 0;
+let lastGitHubFallbackResult = null;
 
 /**
  * Recursively searches a directory for any .node native addon file.
@@ -257,47 +286,121 @@ function getLocalVersion() {
 }
 
 /**
- * Checks GitHub releases for available updates (non-blocking)
- * @returns {Promise<{available: boolean, latest: string, current: string, url: string}|null>}
+ * Performs a JSON GET request with timeout support.
+ * @param {string} url
+ * @param {{ timeoutMs?: number, headers?: Record<string, string> }} [options]
+ * @returns {Promise<object|null>}
  */
-async function checkForUpdates() {
+async function requestJson(url, { timeoutMs = 5000, headers = {} } = {}) {
     try {
-        const https = require('https');
-        const data = await new Promise((resolve, reject) => {
-            const req = https.get(GITHUB_API_URL, {
-                headers: { 'User-Agent': 'WhiteoutSurvivalBot' }
-            }, (res) => {
+        const parsedUrl = new URL(url);
+        const httpModule = parsedUrl.protocol === 'http:' ? require('http') : require('https');
+        return await new Promise((resolve) => {
+            const req = httpModule.get(parsedUrl, { headers }, (res) => {
                 let body = '';
                 res.on('data', chunk => body += chunk);
                 res.on('end', () => {
-                    if (res.statusCode === 200) {
+                    if (res.statusCode !== 200) {
+                        resolve(null);
+                        return;
+                    }
+
+                    try {
                         resolve(JSON.parse(body));
-                    } else {
+                    } catch {
                         resolve(null);
                     }
                 });
             });
+
             req.on('error', () => resolve(null));
-            req.setTimeout(5000, () => { req.destroy(); resolve(null); });
+            req.setTimeout(timeoutMs, () => { req.destroy(); resolve(null); });
         });
-
-        if (!data || !data.tag_name) return null;
-
-        const latestVersion = data.tag_name.replace(/^v/, '');
-        const currentVersion = getLocalVersion();
-        const available = compareVersions(latestVersion, currentVersion) > 0;
-
-        return {
-            available,
-            latest: latestVersion,
-            current: currentVersion,
-            url: data.html_url || `https://github.com/${GITHUB_REPO}/releases`,
-            body: data.body || '',
-            assets: (data.assets || []).map(a => ({ name: a.name, url: a.browser_download_url }))
-        };
     } catch {
         return null;
     }
+}
+
+/**
+ * Normalizes release payloads from either the central proxy or GitHub.
+ * @param {any} payload
+ * @returns {{tag_name: string, html_url: string, body: string, assets: Array<{name: string, browser_download_url: string}>}|null}
+ */
+function normalizeReleasePayload(payload) {
+    const release = payload?.release || payload;
+    if (!release?.tag_name) return null;
+
+    return {
+        tag_name: String(release.tag_name),
+        html_url: release.html_url || `https://github.com/${GITHUB_REPO}/releases`,
+        body: release.body || '',
+        assets: Array.isArray(release.assets)
+            ? release.assets.map(asset => ({
+                name: asset.name,
+                browser_download_url: asset.browser_download_url || asset.url || ''
+            }))
+            : []
+    };
+}
+
+/**
+ * Builds the bot-facing update info shape from a normalized release payload.
+ * @param {{tag_name: string, html_url: string, body: string, assets: Array<{name: string, browser_download_url: string}>}} release
+ * @param {string} source
+ * @returns {{available: boolean, latest: string, current: string, url: string, body: string, assets: Array<{name: string, url: string}>, source: string}}
+ */
+function buildUpdateInfo(release, source) {
+    const latestVersion = release.tag_name.replace(/^v/, '');
+    const currentVersion = getLocalVersion();
+    const available = compareVersions(latestVersion, currentVersion) > 0;
+
+    return {
+        available,
+        latest: latestVersion,
+        current: currentVersion,
+        url: release.html_url || `https://github.com/${GITHUB_REPO}/releases`,
+        body: release.body || '',
+        assets: (release.assets || []).map(asset => ({
+            name: asset.name,
+            url: asset.browser_download_url
+        })),
+        source
+    };
+}
+
+/**
+ * Checks for available updates, preferring the central proxy cache and falling
+ * back to direct GitHub checks no more than once every 30 minutes when the
+ * proxy is unavailable.
+ * @returns {Promise<{available: boolean, latest: string, current: string, url: string}|null>}
+ */
+async function checkForUpdates() {
+    if (UPDATE_PROXY_URL) {
+        const proxyPayload = await requestJson(UPDATE_PROXY_URL, {
+            timeoutMs: UPDATE_PROXY_TIMEOUT_MS,
+            headers: { 'User-Agent': 'WhiteoutSurvivalBot' }
+        });
+        const normalizedProxyRelease = normalizeReleasePayload(proxyPayload);
+        if (normalizedProxyRelease) {
+            return buildUpdateInfo(normalizedProxyRelease, 'central-proxy');
+        }
+    }
+
+    const now = Date.now();
+    if (lastGitHubFallbackAttemptAt && (now - lastGitHubFallbackAttemptAt) < GITHUB_FALLBACK_INTERVAL_MS) {
+        return lastGitHubFallbackResult;
+    }
+
+    lastGitHubFallbackAttemptAt = now;
+    const githubPayload = await requestJson(GITHUB_API_URL, {
+        timeoutMs: 5000,
+        headers: { 'User-Agent': 'WhiteoutSurvivalBot' }
+    });
+    const normalizedGitHubRelease = normalizeReleasePayload(githubPayload);
+    lastGitHubFallbackResult = normalizedGitHubRelease
+        ? buildUpdateInfo(normalizedGitHubRelease, 'github-fallback')
+        : null;
+    return lastGitHubFallbackResult;
 }
 
 /**
@@ -694,14 +797,17 @@ async function applyUpdate() {
         console.log('\n[UPDATE] Cleaning up temporary files...');
         cleanupTempFiles(updateZipPath, updateExtractDir);
 
-        // If starter.js itself was updated and parent supports self-update loop, exit with code 43 to trigger full re-launch
+        // If starter.js itself was updated and the launcher wrapper is active, exit with code 43
+        // so the supervisor respawns the child from the updated file on disk.
         if (stats.starterChanged) {
             if (process.env.FULL_SELF_UPDATE === '1') {
-                console.log('\n[UPDATE] starter.js was updated — full re-launch to apply entry-point changes...');
-                setTimeout(() => process.exit(43), 500);
+                console.log('\n[UPDATE] starter.js was updated — restarting from updated disk state...');
+                // Use setImmediate so restartBot(43) runs after applyUpdate() returns.
+                setImmediate(() => restartBot(43));
                 const failMsg = stats.failed > 0 ? ` ${stats.failed} files failed to update.` : '';
                 return {
                     success: true,
+                    restartHandled: true,
                     message: `Update applied successfully! ${stats.updated} files updated, ${stats.added} files added.${failMsg} starter.js changed — restarting automatically...`
                 };
             } else {
@@ -993,7 +1099,8 @@ async function checkDepsInstalled(cwd, env) {
 /**
  * Runs npm install (or npm ci for clean installs) with automatic retry.
  * For updates, uses `npm install` (incremental) to avoid re-downloading everything.
- * For fresh installs, uses `npm ci` when lockfile exists for deterministic installs.
+ * For fresh installs, tries `npm ci` when lockfile exists, then automatically
+ * falls back to `npm install` if npm ci fails (e.g. missing or stale lockfile).
  * If disk space is too low for `npm ci`, falls back to `npm install` automatically.
  * Cleans npm cache after successful install to reclaim disk space.
  * @param {string} cwd     - Working directory (where package.json lives)
@@ -1044,10 +1151,6 @@ async function robustNpmInstall(cwd, context, { preferCleanInstall = false, isUp
         }
     }
 
-    const npmCommand = useCleanInstall ? 'ci' : 'install';
-    const BASE_FLAGS = [npmCommand, '--omit=optional', '--no-audit', '--no-fund'];
-    if (!useCleanInstall) BASE_FLAGS.push('--prefer-offline');
-
     // For updates (incremental install), prune orphaned packages from previous versions
     // before installing. npm install is supposed to do this but sometimes leaves leftovers.
     if (isUpdate && !useCleanInstall) {
@@ -1063,21 +1166,34 @@ async function robustNpmInstall(cwd, context, { preferCleanInstall = false, isUp
         console.log(`${context} Low-memory machine detected (${totalMb} MB total, ${freeMb} MB free, npm heap: ${heapMb} MB). Install may take multiple attempts...`);
     }
 
+    // Track current command and flags — may switch from ci -> install on first failure
+    let currentCommand = useCleanInstall ? 'ci' : 'install';
+    let currentFlags = [currentCommand, '--omit=optional', '--no-audit', '--no-fund'];
+    if (currentCommand === 'install') currentFlags.push('--prefer-offline');
+
     let installSucceeded = false;
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
         try {
-            console.log(`${context} Running npm ${npmCommand} (attempt ${attempt}/${MAX_RETRIES}, heap: ${heapMb} MB)...`);
-            await spawnAsync('npm', BASE_FLAGS, { cwd, stdio: 'inherit', env: npmEnv });
+            console.log(`${context} Running npm ${currentCommand} (attempt ${attempt}/${MAX_RETRIES}, heap: ${heapMb} MB)...`);
+            await spawnAsync('npm', currentFlags, { cwd, stdio: 'inherit', env: npmEnv });
             console.log(`${context} Dependencies installed successfully.`);
             installSucceeded = true;
             break;
         } catch (err) {
-            console.warn(`${context} npm ${npmCommand} attempt ${attempt} failed: ${err.message}`);
+            console.warn(`${context} npm ${currentCommand} attempt ${attempt} failed: ${err.message}`);
 
             if (await checkDepsInstalled(cwd, npmEnv)) {
                 console.log(`${context} Install was interrupted but all packages are verified present.`);
                 installSucceeded = true;
                 break;
+            }
+
+            // If npm ci failed for any reason, fall back to npm install for remaining attempts.
+            // This handles missing lockfile, stale/mismatched lockfile, and other ci-specific errors.
+            if (currentCommand === 'ci') {
+                console.log(`${context} npm ci failed — falling back to npm install for remaining attempts...`);
+                currentCommand = 'install';
+                currentFlags = ['install', '--omit=optional', '--no-audit', '--no-fund', '--prefer-offline'];
             }
 
             if (attempt < MAX_RETRIES) {
@@ -1214,7 +1330,7 @@ async function installRepo() {
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
         console.log('\n[INSTALLER] Restarting with the installed version...\n');
 
-        // Exit with code 43 so the parent wrapper re-launches from the newly installed starter.js
+        // Exit with code 43 so the launcher respawns the newly installed starter.js from disk
         if (process.env.FULL_SELF_UPDATE === '1') {
             process.exit(43);
         }
@@ -1541,6 +1657,15 @@ async function reloadAllFiles() {
     for (const ep of eventPaths) { clearCache(ep); }
     for (const cp of commandPaths) { clearCache(cp); }
 
+    // Also clear plugin dependency files (server.js, tunnel.js, etc.) that are
+    // not in handlerPaths/eventPaths/commandPaths but live under plugins/
+    const pluginsDir = path.join(__dirname, 'plugins');
+    for (const cacheKey of Object.keys(require.cache)) {
+        if (cacheKey.startsWith(pluginsDir)) {
+            clearCache(cacheKey);
+        }
+    }
+
     // Step 4: Reload i18n
     try {
         const i18nPath = path.join(SRC_DIR, 'i18n', 'index.js');
@@ -1662,8 +1787,16 @@ function cleanupAllSchedulers() {
 /**
  * Full restart - destroys client, clears ALL cache, and restarts
  * This fixes issues with cached function references
+ * @param {number} [exitCode=42] - Exit code to use when running under the parent wrapper.
+ *   42 = normal respawn, 43 = child respawn after starter.js changed on disk.
  */
-async function restartBot() {
+let isShuttingDown = false;
+async function restartBot(exitCode = 42) {
+    // Guard against double-teardown — e.g. when both applyUpdate() and old autoUpdate.js
+    // both try to tear down the client. The second call is a no-op.
+    if (isShuttingDown) return;
+    isShuttingDown = true;
+
     try {
         console.log('Restarting bot...\n');
 
@@ -1672,20 +1805,20 @@ async function restartBot() {
         // Destroy the current client
         if (botClient) {
             console.log('Disconnecting client...');
-            await botClient.destroy();
+            try {
+                await botClient.destroy();
+            } catch (destroyError) {
+                // Continue restart flow even if Discord.js already tore down internally.
+                console.warn(`Client destroy reported an error during restart: ${destroyError.message}`);
+            }
             botClient = null;
             botModule = null;
         }
 
-        // If running under the parent wrapper, exit with code 42 for a full respawn.
-        // This ensures starter.js changes are picked up from disk.
+        // If running under the parent wrapper, exit with the given code for a full respawn.
+        // 42 = normal respawn, 43 = child respawn after starter.js changed on disk.
         if (process.env.FULL_SELF_UPDATE === '1') {
-            process.exit(42);
-        }
-
-        // Docker: exit cleanly -- the container restart policy handles the respawn
-        if (global.isDocker) {
-            process.exit(0);
+            process.exit(exitCode);
         }
 
         // Fallback: in-process restart (direct execution without parent wrapper)
@@ -1699,13 +1832,22 @@ async function restartBot() {
         console.log('Cleared all module cache');
         await new Promise(resolve => setTimeout(resolve, 1500));
         startBot();
+        isShuttingDown = false;
         console.log('Restart complete\n');
     } catch (error) {
         console.error('Failed to restart:', error);
-        console.log('Attempting emergency restart...\n');
+
+        // Under the wrapper, always force process exit so the supervisor respawns cleanly
+        // with updated files instead of keeping a partially-torn in-memory process alive.
+        if (process.env.FULL_SELF_UPDATE === '1') {
+            console.log('Forcing launcher respawn after restart failure...\n');
+            process.exit(exitCode);
+        }
+        console.log('Attempting emergency in-process restart...\n');
 
         try {
             startBot();
+            isShuttingDown = false;
         } catch (startError) {
             console.error('Emergency restart failed:', startError);
             process.exit(1);
@@ -1822,6 +1964,13 @@ async function gracefulShutdown(exitCode = 0) {
         }
     } catch { /* database module not loaded or already closed */ }
 
+    // 7. Checkpoint and close the web panel plugin database (WAL mode).
+    try {
+        const pluginDb = require('./plugins/web-panel/pluginDb');
+        pluginDb.close();
+        console.log('[SHUTDOWN] Web panel database closed cleanly (WAL checkpointed).');
+    } catch { /* plugin not loaded or already closed */ }
+
     process.exit(exitCode);
 }
 
@@ -1859,7 +2008,7 @@ function setupCommandInterface() {
     console.log('  restart         - Full bot restart (clears all cache)');
     console.log('  usage           - Show RAM/storage usage and GC status');
     console.log('  token [TOKEN]   - Update saved Discord token and restart bot');
-    console.log('  update          - Check for and apply updates from GitHub');
+    console.log('  update          - Check for and apply updates');
     console.log('  version         - Show current bot version');
     console.log('  exit            - Shutdown everything');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
@@ -1990,22 +2139,53 @@ function setupCommandInterface() {
 
         // Handle "update" command
         if (lower === 'update') {
+            const hasDockerEngineSocket = global.isDocker && fs.existsSync('/var/run/docker.sock');
+            if (hasDockerEngineSocket) {
+                console.log('\n[UPDATE] Console update is disabled in Docker socket mode.');
+                console.log('[UPDATE] Use Settings -> Auto Update (Docker Engine API path) to apply updates safely.\n');
+                rl.prompt();
+                return;
+            }
+
             console.log('\nChecking for updates...');
             try {
                 const updateInfo = await checkForUpdates();
                 if (!updateInfo) {
-                    console.log('Could not check for updates (no internet or GitHub API unavailable).\n');
+                    console.log('Could not check for updates (proxy/GitHub unavailable).\n');
                 } else if (!updateInfo.available) {
                     console.log(`Already on the latest version (v${updateInfo.current}).\n`);
                 } else {
                     console.log(`New version available: v${updateInfo.latest} (current: v${updateInfo.current})`);
                     rl.question('Apply update now? (y/n): ', async (answer) => {
                         if (answer.trim().toLowerCase() === 'y') {
-                            const result = await applyUpdate();
-                            console.log(`\n${result.message}`);
-                            if (result.success) {
-                                console.log('Restarting bot...\n');
-                                await restartBot();
+                            const {
+                                acquireUpdateLock,
+                                releaseUpdateLock,
+                                formatActiveUpdateMessage
+                            } = require('./src/functions/Settings/updateCoordinator');
+                            const lock = acquireUpdateLock('console bot update');
+                            if (!lock.acquired) {
+                                console.log(`${formatActiveUpdateMessage(lock.active)}\n`);
+                                rl.prompt();
+                                return;
+                            }
+
+                            let keepLock = false;
+                            try {
+                                const result = await applyUpdate();
+                                console.log(`\n${result.message}`);
+                                if (result.success && result.restartHandled) {
+                                    keepLock = true;
+                                }
+                                if (result.success && !result.restartHandled) {
+                                    keepLock = true;
+                                    console.log('Restarting bot...\n');
+                                    await restartBot();
+                                }
+                            } finally {
+                                if (!keepLock) {
+                                    releaseUpdateLock(lock.token);
+                                }
                             }
                         } else {
                             console.log('Update skipped.\n');
@@ -2067,6 +2247,11 @@ process.on('exit', () => {
             db.close();
         }
     } catch { /* already closed or not loaded */ }
+
+    try {
+        const pluginDb = require('./plugins/web-panel/pluginDb');
+        pluginDb.close();
+    } catch { /* plugin not loaded or already closed */ }
 });
 
 // Expose functions globally for programmatic use (e.g., settings panel auto-update)

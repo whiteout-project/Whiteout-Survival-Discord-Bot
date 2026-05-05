@@ -32,11 +32,12 @@ class AutoRefreshManager {
             const alliances = allianceQueries.getAllAlliances();
             const refreshableAlliances = alliances.filter(alliance => {
                 const interval = alliance.interval;
-                // Support both minute-based (number > 0) and time-based (@HH:MM) formats
-                return interval && (
-                    (typeof interval === 'number' && interval > 0) ||
-                    (typeof interval === 'string' && interval.startsWith('@'))
-                ) && alliance.channel_id;
+                if (!interval) return false;
+                // Time-based (@HH:MM) format
+                if (typeof interval === 'string' && interval.startsWith('@')) return true;
+                // Minute-based: stored as TEXT in SQLite, so parse as number
+                const parsed = Number(interval);
+                return !isNaN(parsed) && parsed > 0;
             });
 
             if (refreshableAlliances.length === 0) {
@@ -115,11 +116,11 @@ class AutoRefreshManager {
         this.activeRefreshes.delete(allianceId);
         try {
             const alliance = allianceQueries.getAllianceById(allianceId);
-            if (alliance && alliance.channel_id) {
+            if (alliance) {
                 const interval = alliance.interval;
                 const hasInterval = interval && (
-                    (typeof interval === 'number' && interval > 0) ||
-                    (typeof interval === 'string' && interval.startsWith('@'))
+                    (typeof interval === 'string' && interval.startsWith('@')) ||
+                    (!isNaN(Number(interval)) && Number(interval) > 0)
                 );
                 if (hasInterval) {
                     this.scheduleNextRefresh(alliance);
@@ -240,30 +241,17 @@ class AutoRefreshManager {
             }
 
             // Fetch channel dynamically (even if it changed since process creation)
-            if (!this.client) {
-                await handleError(null, null, new Error('Discord client not initialized'), 'executeAutoRefresh', false);
-                this._cleanupAndReschedule(alliance.id);
-                return;
-            }
-
-            // Fetch from API instead of cache to get the latest channel
+            // Channel is optional -- if unavailable, refresh still updates player data silently
             let channel = null;
-            try {
-                channel = await this.client.channels.fetch(alliance.channel_id);
-            } catch (fetchErr) {
-                // Only treat "Unknown Channel" (10003) as channel-not-found; other errors may be transient
-                if (fetchErr.code === 10003) {
-                    channel = null;
-                } else {
-                    await handleError(null, null, fetchErr, 'executeAutoRefresh_channelFetch', false);
-                    this._cleanupAndReschedule(alliance.id);
-                    return;
+            if (this.client && alliance.channel_id) {
+                try {
+                    channel = await this.client.channels.fetch(alliance.channel_id);
+                } catch (fetchErr) {
+                    // Channel unavailable (deleted, no access, etc.) -- proceed without notifications
+                    if (fetchErr.code !== 10003) {
+                        await handleError(null, null, fetchErr, 'executeAutoRefresh_channelFetch', false);
+                    }
                 }
-            }
-            if (!channel) {
-                await handleError(null, null, new Error(`Channel ${alliance.channel_id} not found for alliance ${alliance.name}`), 'executeAutoRefresh', false);
-                this._cleanupAndReschedule(alliance.id);
-                return;
             }
 
             const lang = languages['en'] || {}; // Use default language for auto-refresh
@@ -405,13 +393,13 @@ class AutoRefreshManager {
                         }
                     }
 
-                    // Compare data for changes
+                    // Compare data for changes (nickname, furnace_level, state)
                     const playerChanges = this.comparePlayerData(currentPlayer, apiData, lang);
 
-                    if (playerChanges.length > 0) {
-                        // Update player data in database and save change history
-                        await this.updatePlayerData(playerId, apiData, alliance.id, playerChanges);
+                    // Always update player data (ensures avatar_image and other fields stay current)
+                    await this.updatePlayerData(playerId, apiData, alliance.id, playerChanges);
 
+                    if (playerChanges.length > 0) {
                         // Track changes in memory
                         const changeEntry = {
                             player: currentPlayer,
@@ -457,8 +445,8 @@ class AutoRefreshManager {
                 return;
             }
 
-            // Send change notifications only if changes were found
-            if (changes.length > 0) {
+            // Send change notifications only if changes were found and channel is available
+            if (changes.length > 0 && channel) {
                 await this.sendChangeNotifications(channel, alliance, changes, lang);
 
                 // Clear detectedChanges from progress after successful notification
