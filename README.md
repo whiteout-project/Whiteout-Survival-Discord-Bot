@@ -44,6 +44,9 @@ Steps:
 # Ensure Node.js (v18+) is installed
 # Place starter.js in an empty directory and run:
 node starter.js
+
+# Optional: cap bot and installer heap size
+node starter.js --ram=512
 ```
 
 If you prefer manual installation or need to customize the setup, you can still clone the repository and install dependencies yourself:

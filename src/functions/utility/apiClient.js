@@ -6,6 +6,7 @@
 
 const crypto = require('crypto');
 const fetch = require('node-fetch');
+const { getGameProxyAgent } = require('./proxySupport');
 
 const isDevMode = process.env.WOSLAND_DEV_MODE === '1';
 const http = require('http');
@@ -17,6 +18,18 @@ const httpsAgent = new https.Agent({ keepAlive: false });
 // Persistent agents for gift code API — reuses TCP+TLS connections across requests
 const giftCodeHttpAgent = new http.Agent({ keepAlive: true, maxSockets: 5, keepAliveMsecs: 30000 });
 const giftCodeHttpsAgent = new https.Agent({ keepAlive: true, maxSockets: 5, keepAliveMsecs: 30000 });
+
+function getDirectAgent(url, preferKeepAlive = false) {
+    const isHttpsUrl = url.startsWith('https');
+    if (preferKeepAlive) {
+        return isHttpsUrl ? giftCodeHttpsAgent : giftCodeHttpAgent;
+    }
+    return isHttpsUrl ? httpsAgent : httpAgent;
+}
+
+function getAgentForGameRequest(url, preferKeepAlive = false) {
+    return getGameProxyAgent(url) || getDirectAgent(url, preferKeepAlive);
+}
 
 // Browser profiles for header randomization
 const BROWSER_PROFILES = [
@@ -128,7 +141,7 @@ async function fetchPost(url, body, origin = API_CONFIG.ORIGIN) {
         },
         body,
         // disable keep-alive and add a timeout so we don't hang on stale sockets
-        agent: url.startsWith('https') ? httpsAgent : httpAgent,
+        agent: getAgentForGameRequest(url),
         timeout: 15000
     });
 
@@ -160,7 +173,7 @@ async function nativePost(url, payload, label, cookies) {
         const urlObject = new URL(url);
         const browserHeaders = generateBrowserHeaders();
         const isHttps = urlObject.protocol === 'https:';
-        const agent = isHttps ? giftCodeHttpsAgent : giftCodeHttpAgent;
+        const agent = getAgentForGameRequest(url, true);
         const headers = {
             'Content-Type': 'application/x-www-form-urlencoded',
             'Content-Length': Buffer.byteLength(postData),
@@ -278,7 +291,7 @@ class PlayerApiManager {
                         ...generateBrowserHeaders(api.origin)
                     },
                     body,
-                    agent: api.url.startsWith('https') ? httpsAgent : httpAgent,
+                    agent: getAgentForGameRequest(api.url),
                     timeout: 5000
                 });
                 // 200 (success) or 429 (rate limited) both mean the API is reachable

@@ -171,25 +171,26 @@ module.exports = {
             processRecovery.client = client;
         }
 
-        // Parallel async initializations (network/DB bound, independent of each other)
-        const parallelTasks = [
-            playerApiManager.checkAvailability()
-                .catch(error => console.error('Failed to check player API availability:', error)),
-            initializeAutoRefresh(client)
-                .catch(error => console.error('Failed to initialize auto-refresh system:', error)),
-            initializeNotificationScheduler(client)
-                .catch(error => console.error('Failed to initialize notification scheduler:', error)),
-            initializeIdChannelCache()
-                .catch(error => console.error('Failed to initialize ID channel cache:', error)),
-            initializeGiftCodeChannelCache()
-                .catch(error => console.error('Failed to initialize gift code channel cache:', error)),
-            initializeEmojiPacks(client)
-                .catch(error => console.error('Failed to initialize emoji packs:', error)),
-            adminUsernameCache.initialize(client)
-                .catch(error => console.error('Failed to initialize admin username cache:', error))
+        console.log(`[READY] Logged in as ${client.user.tag}`);
+
+        // Non-critical startup work should not delay the bot becoming usable.
+        const backgroundTasks = [
+            ['player API availability', () => playerApiManager.checkAvailability()],
+            ['auto-refresh system', () => initializeAutoRefresh(client)],
+            ['notification scheduler', () => initializeNotificationScheduler(client)],
+            ['ID channel cache', () => initializeIdChannelCache()],
+            ['gift code channel cache', () => initializeGiftCodeChannelCache()],
+            ['emoji packs', () => initializeEmojiPacks(client)],
+            ['admin username cache', () => adminUsernameCache.initialize(client)]
         ];
 
-        await Promise.allSettled(parallelTasks);
+        setImmediate(() => {
+            for (const [label, runTask] of backgroundTasks) {
+                Promise.resolve()
+                    .then(runTask)
+                    .catch(error => console.error(`Failed to initialize ${label}:`, error));
+            }
+        });
 
         // Update the "Restarting..." message if this is a post-update restart
         await handlePostUpdateRestart(client).catch(error =>

@@ -13,6 +13,25 @@ const isDocker = !!(process.env.DOCKER_CONTAINER || (function () {
 })());
 global.isDocker = isDocker;
 
+function parseRamArg(argv = []) {
+    for (const arg of argv) {
+        const match = /^--ram=(\d+)$/i.exec(arg);
+        if (!match) continue;
+
+        const mb = parseInt(match[1], 10);
+        if (Number.isFinite(mb) && mb >= 64) {
+            return mb;
+        }
+    }
+    return null;
+}
+
+function getConfiguredBotHeapMb() {
+    return parseRamArg(process.argv.slice(2))
+        || parseRamArg(process.execArgv)
+        || 256;
+}
+
 // ============================================================
 // PARENT / CHILD WRAPPER
 // When running as the parent (no STARTER_CHILD env), spawn self
@@ -31,11 +50,12 @@ if (!process.env.STARTER_CHILD) {
         const userArgs = process.argv.slice(2); // args after "starter.js"
         let activeChild = null;
         let parentShuttingDown = false;
+        const configuredBotHeapMb = getConfiguredBotHeapMb();
 
         // Ensure --expose-gc and --max-old-space-size are present
-        const nodeFlags = [...process.execArgv];
+        const nodeFlags = process.execArgv.filter(f => !f.includes('max-old-space-size'));
         if (!nodeFlags.some(f => f.includes('expose-gc'))) nodeFlags.push('--expose-gc');
-        if (!nodeFlags.some(f => f.includes('max-old-space-size'))) nodeFlags.push('--max-old-space-size=256');
+        nodeFlags.push(`--max-old-space-size=${configuredBotHeapMb}`);
 
         function forwardSignal(signal) {
             parentShuttingDown = true;
@@ -327,6 +347,10 @@ async function requestJson(url, { timeoutMs = 5000, headers = {} } = {}) {
  * @returns {{tag_name: string, html_url: string, body: string, assets: Array<{name: string, browser_download_url: string}>}|null}
  */
 function normalizeReleasePayload(payload) {
+    if (payload && typeof payload === 'object' && 'latest' in payload && 'url' in payload) {
+        return payload;
+    }
+
     const release = payload?.release || payload;
     if (!release?.tag_name) return null;
 
@@ -350,6 +374,18 @@ function normalizeReleasePayload(payload) {
  * @returns {{available: boolean, latest: string, current: string, url: string, body: string, assets: Array<{name: string, url: string}>, source: string}}
  */
 function buildUpdateInfo(release, source) {
+    if (release && typeof release === 'object' && 'latest' in release && 'url' in release) {
+        return {
+            available: !!release.available,
+            latest: String(release.latest || '').replace(/^v/, ''),
+            current: String(release.current || getLocalVersion()).replace(/^v/, ''),
+            url: release.url,
+            body: release.body || '',
+            assets: Array.isArray(release.assets) ? release.assets : [],
+            source: release.source || source
+        };
+    }
+
     const latestVersion = release.tag_name.replace(/^v/, '');
     const currentVersion = getLocalVersion();
     const available = compareVersions(latestVersion, currentVersion) > 0;
@@ -375,8 +411,11 @@ function buildUpdateInfo(release, source) {
  * @returns {Promise<{available: boolean, latest: string, current: string, url: string}|null>}
  */
 async function checkForUpdates() {
+    const currentVersion = getLocalVersion();
     if (UPDATE_PROXY_URL) {
-        const proxyPayload = await requestJson(UPDATE_PROXY_URL, {
+        const proxyUrl = new URL(UPDATE_PROXY_URL);
+        proxyUrl.searchParams.set('current', currentVersion);
+        const proxyPayload = await requestJson(proxyUrl.toString(), {
             timeoutMs: UPDATE_PROXY_TIMEOUT_MS,
             headers: { 'User-Agent': 'WhiteoutSurvivalBot' }
         });
@@ -987,11 +1026,23 @@ function getEffectiveFreeMemMb() {
 function npmHeapMb() {
     const freeMb  = getEffectiveFreeMemMb();
     const totalMb = getEffectiveTotalMemMb();
-    // Low-memory containers need a larger safety margin.
-    const headroom = totalMb < 1024 ? 160 : 80;
-    const min      = totalMb < 1024 ? 128 : 256;
-    const max      = totalMb < 1024 ? 384 : 1024;
-    return Math.min(Math.max(freeMb - headroom, min), max);
+    const configuredCapMb = getConfiguredBotHeapMb();
+    // Keep npm conservative so dependency resolution and native addon builds
+    // don't crowd out the OS or get the process killed on small hosts.
+    const profile = totalMb < 1024
+        ? { headroom: 224, min: 96, max: 256 }
+        : totalMb < 2048
+            ? { headroom: 288, min: 128, max: 384 }
+            : { headroom: 384, min: 192, max: 512 };
+
+    const headroom = profile.headroom;
+    const min = profile.min;
+    const max = profile.max;
+    const calculatedHeapMb = Math.min(Math.max(freeMb - headroom, min), max);
+
+    // When the user passes --ram=<MB>, treat it as a hard cap for helper
+    // processes too so installer logs match expectations.
+    return Math.max(64, Math.min(calculatedHeapMb, configuredCapMb));
 }
 
 /**
@@ -1032,6 +1083,12 @@ function getAvailableDiskSpaceMb(dir) {
 const REQUIRED_NPMRC_ENTRIES = {
     'onnxruntime-node-install': 'skip',       // primary flag (v1.20+)
     'onnxruntime-node-install-cuda': 'skip',  // legacy fallback (v1.24.3)
+    'audit': 'false',
+    'fund': 'false',
+    'progress': 'false',
+    'prefer-offline': 'true',
+    'jobs': '1',
+    'maxsockets': '1',
 };
 
 /**
@@ -1124,6 +1181,11 @@ async function robustNpmInstall(cwd, context, { preferCleanInstall = false, isUp
     const npmEnv = {
         ...process.env,
         NODE_OPTIONS: `--max-old-space-size=${heapMb}`,
+        npm_config_jobs: '1',
+        npm_config_maxsockets: '1',
+        npm_config_progress: 'false',
+        npm_config_fund: 'false',
+        npm_config_audit: 'false',
         // Primary flag (onnxruntime-node v1.20+)
         ONNXRUNTIME_NODE_INSTALL: 'skip',
         npm_config_onnxruntime_node_install: 'skip',
@@ -1163,7 +1225,7 @@ async function robustNpmInstall(cwd, context, { preferCleanInstall = false, isUp
     }
 
     if (isLowMemoryEnvironment()) {
-        console.log(`${context} Low-memory machine detected (${totalMb} MB total, ${freeMb} MB free, npm heap: ${heapMb} MB). Install may take multiple attempts...`);
+        console.log(`${context} Low-memory machine detected (${totalMb} MB total, ${freeMb} MB free, npm heap: ${heapMb} MB, npm jobs: 1). Install may take longer, but it should use less RAM.`);
     }
 
     // Track current command and flags — may switch from ci -> install on first failure
@@ -1174,7 +1236,7 @@ async function robustNpmInstall(cwd, context, { preferCleanInstall = false, isUp
     let installSucceeded = false;
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
         try {
-            console.log(`${context} Running npm ${currentCommand} (attempt ${attempt}/${MAX_RETRIES}, heap: ${heapMb} MB)...`);
+            console.log(`${context} Running npm ${currentCommand} (attempt ${attempt}/${MAX_RETRIES}, heap: ${heapMb} MB, jobs: 1, maxsockets: 1)...`);
             await spawnAsync('npm', currentFlags, { cwd, stdio: 'inherit', env: npmEnv });
             console.log(`${context} Dependencies installed successfully.`);
             installSucceeded = true;
@@ -1339,9 +1401,10 @@ async function installRepo() {
         const freshEnv = { ...process.env };
         delete freshEnv.STARTER_CHILD;
         delete freshEnv.FULL_SELF_UPDATE;
+        const configuredBotHeapMb = getConfiguredBotHeapMb();
         const child = spawn(process.execPath, [
             '--expose-gc',
-            '--max-old-space-size=256',
+            `--max-old-space-size=${configuredBotHeapMb}`,
             ...process.argv.slice(1)
         ], {
             stdio: 'inherit',
@@ -1721,6 +1784,7 @@ function startBot() {
         // Require the bot module
         botModule = require(INDEX_PATH);
         botClient = botModule.client;
+        console.log(`[STARTUP] Bot heap limit configured to ${getConfiguredBotHeapMb()} MB`);
 
         // Build file map after bot loads
         buildFileMap();
@@ -1879,7 +1943,9 @@ function showUsage() {
     console.log(`Manual GC: ${gcEnabled}${gcHint}`);
 
     // Heap limit display
-    const heapLimitHint = !global.gc ? ' (use --max-old-space-size=256 to limit)' : '';
+    const heapLimitHint = !global.gc
+        ? ` (use --ram=${getConfiguredBotHeapMb()} or --max-old-space-size=${getConfiguredBotHeapMb()} to limit)`
+        : '';
     console.log(`Heap Limit: ~${heapTotalMB}MB${heapLimitHint}`);
 
     // Storage Usage - Calculate total workspace size
@@ -2011,6 +2077,7 @@ function setupCommandInterface() {
     console.log('  update          - Check for and apply updates');
     console.log('  version         - Show current bot version');
     console.log('  exit            - Shutdown everything');
+    console.log(`Runtime args: --ram=<MB> (current: ${getConfiguredBotHeapMb()} MB), --proxy [URL]`);
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 
     // Non-blocking update check on startup

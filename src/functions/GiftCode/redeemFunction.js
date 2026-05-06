@@ -1911,22 +1911,35 @@ async function updateRedeemProgressEmbed(processId, embedState, stats, context, 
 
         const embed = buildRedeemProgressEmbed(stats, { ...context, processId });
 
-        let message = null;
-        if (embedState.messageId) {
-            try {
-                message = await channel.messages.fetch(embedState.messageId);
-            } catch (error) {
-                message = null;
+        const publishEmbed = async () => {
+            let message = null;
+            if (embedState.messageId) {
+                try {
+                    message = await channel.messages.fetch(embedState.messageId);
+                } catch (error) {
+                    message = null;
+                }
             }
-        }
 
-        if (!message) {
-            message = await channel.send({ embeds: [embed] });
-            embedState.messageId = message.id;
-            embedState.guildId = channel.guildId;
-        } else {
-            await message.edit({ embeds: [embed] });
-        }
+            if (!message) {
+                message = await channel.send({ embeds: [embed] });
+                embedState.messageId = message.id;
+                embedState.guildId = channel.guildId;
+                return;
+            }
+
+            try {
+                await message.edit({ embeds: [embed] });
+            } catch (error) {
+                // If the original message is gone or edit temporarily fails,
+                // recreate it so the final batch does not get stuck on stale progress.
+                message = await channel.send({ embeds: [embed] });
+                embedState.messageId = message.id;
+                embedState.guildId = channel.guildId;
+            }
+        };
+
+        await publishEmbed();
 
         embedState.lastUpdateCount = stats.processed;
         embedState.lastState = context.state;

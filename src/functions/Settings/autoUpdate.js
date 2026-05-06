@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const https = require('https');
 const {
     ButtonBuilder,
     ButtonStyle,
@@ -22,11 +23,84 @@ const {
 const PENDING_UPDATE_PATH = path.join(__dirname, '..', '..', 'database', 'pending_update.json');
 const AUTO_UPDATE_INTERVAL_MS = 5 * 60 * 1000;
 const DOCKER_SOCKET = '/var/run/docker.sock';
+const UPDATE_CHECK_PROXY_URL = process.env.UPDATE_CHECK_PROXY_URL || 'https://wosland.com/api/updates/latest';
+const PLUGIN_UPDATE_PROXY_URL = process.env.PLUGIN_UPDATE_CHECK_PROXY_URL
+    || new URL('/api/updates/plugins', UPDATE_CHECK_PROXY_URL).toString();
 
 let autoUpdateInterval = null;
 let lastNotifiedVersion = null;
 /** Tracks which plugin versions have already triggered a notification to avoid DM spam */
 const lastNotifiedPluginVersions = new Map();
+
+function requestJson(url, { method = 'GET', timeoutMs = 5000, headers = {}, body = null } = {}) {
+    return new Promise((resolve) => {
+        try {
+            const parsedUrl = new URL(url);
+            const httpModule = parsedUrl.protocol === 'http:' ? require('http') : require('https');
+            const req = httpModule.request(parsedUrl, { method, headers }, (res) => {
+                let responseBody = '';
+                res.on('data', chunk => responseBody += chunk);
+                res.on('end', () => {
+                    if (res.statusCode < 200 || res.statusCode >= 300) {
+                        resolve(null);
+                        return;
+                    }
+
+                    try {
+                        resolve(JSON.parse(responseBody));
+                    } catch {
+                        resolve(null);
+                    }
+                });
+            });
+
+            req.on('error', () => resolve(null));
+            req.setTimeout(timeoutMs, () => { req.destroy(); resolve(null); });
+            if (body) req.write(body);
+            req.end();
+        } catch {
+            resolve(null);
+        }
+    });
+}
+
+function getInstalledPluginVersions() {
+    if (typeof global.pluginManager?.getInstalled !== 'function') return [];
+
+    return global.pluginManager.getInstalled()
+        .filter(plugin => plugin?.name && plugin?.version)
+        .map(plugin => ({
+            name: plugin.name,
+            version: plugin.version
+        }));
+}
+
+async function checkPluginUpdatesViaProxy() {
+    const installedPlugins = getInstalledPluginVersions();
+    if (installedPlugins.length === 0) {
+        return { updates: [] };
+    }
+
+    const payload = await requestJson(PLUGIN_UPDATE_PROXY_URL, {
+        method: 'POST',
+        timeoutMs: 5000,
+        headers: {
+            'Content-Type': 'application/json',
+            'User-Agent': 'WhiteoutSurvivalBot'
+        },
+        body: JSON.stringify({ plugins: installedPlugins })
+    });
+
+    if (payload && Array.isArray(payload.updates)) {
+        return { updates: payload.updates };
+    }
+
+    if (typeof global.pluginManager?.checkUpdates === 'function') {
+        return global.pluginManager.checkUpdates();
+    }
+
+    return { updates: [], error: 'Could not check plugin updates.' };
+}
 
 function savePendingUpdateReference(payload) {
     try {
@@ -401,31 +475,29 @@ async function handleAutoUpdateCheck(interaction) {
 
         // Check for plugin updates
         let pluginUpdates = [];
-        if (typeof global.pluginManager?.checkUpdates === 'function') {
-            const pluginResult = await global.pluginManager.checkUpdates();
-            if (pluginResult && pluginResult.updates.length > 0) {
-                pluginUpdates = pluginResult.updates;
-                statusText += settingsLang.pluginUpdates.title;
-                for (const pu of pluginUpdates) {
-                    statusText += settingsLang.pluginUpdates.item
-                        .replace('{name}', pu.name)
-                        .replace('{current}', pu.current)
-                        .replace('{latest}', pu.latest);
-                }
-
-                // Add update buttons for each plugin (max 5 per row)
-                const pluginRow = new ActionRowBuilder();
-                for (const pu of pluginUpdates.slice(0, 5)) {
-                    pluginRow.addComponents(
-                        new ButtonBuilder()
-                            .setCustomId(`auto_update_plugin_${pu.name}_${interaction.user.id}`)
-                            .setLabel(settingsLang.pluginUpdates.button.replace('{name}', pu.name))
-                            .setStyle(ButtonStyle.Primary)
-                            .setEmoji(getComponentEmoji(getEmojiMapForUser(interaction.user.id), '1033'))
-                    );
-                }
-                components.push(pluginRow);
+        const pluginResult = await checkPluginUpdatesViaProxy();
+        if (pluginResult && pluginResult.updates.length > 0) {
+            pluginUpdates = pluginResult.updates;
+            statusText += settingsLang.pluginUpdates.title;
+            for (const pu of pluginUpdates) {
+                statusText += settingsLang.pluginUpdates.item
+                    .replace('{name}', pu.name)
+                    .replace('{current}', pu.current)
+                    .replace('{latest}', pu.latest);
             }
+
+            // Add update buttons for each plugin (max 5 per row)
+            const pluginRow = new ActionRowBuilder();
+            for (const pu of pluginUpdates.slice(0, 5)) {
+                pluginRow.addComponents(
+                    new ButtonBuilder()
+                        .setCustomId(`auto_update_plugin_${pu.name}_${interaction.user.id}`)
+                        .setLabel(settingsLang.pluginUpdates.button.replace('{name}', pu.name))
+                        .setStyle(ButtonStyle.Primary)
+                        .setEmoji(getComponentEmoji(getEmojiMapForUser(interaction.user.id), '1033'))
+                );
+            }
+            components.push(pluginRow);
         }
 
         // Build the container
@@ -1012,11 +1084,8 @@ function startAutoUpdateScheduler(client) {
             }
 
             // ── 2. Check plugin update availability ───────────────────────
-            let newPluginUpdates = [];
-            if (typeof global.pluginManager?.checkUpdates === 'function') {
-                const { updates: pluginUpdates = [] } = await global.pluginManager.checkUpdates();
-                newPluginUpdates = pluginUpdates.filter(pu => lastNotifiedPluginVersions.get(pu.name) !== pu.latest);
-            }
+            const { updates: pluginUpdates = [] } = await checkPluginUpdatesViaProxy();
+            const newPluginUpdates = pluginUpdates.filter(pu => lastNotifiedPluginVersions.get(pu.name) !== pu.latest);
 
             const hasBotUpdate = botUpdateAvailable && latestVersion;
             const hasPluginUpdates = newPluginUpdates.length > 0;

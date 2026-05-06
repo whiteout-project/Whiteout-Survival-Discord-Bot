@@ -1,6 +1,6 @@
 {
   "name": "wosland-bot",
-  "version": "1.0.34",
+  "version": "1.0.35",
   "description": "whiteout survival discord bot",
   "main": "src/index.js",
   "scripts": {
@@ -15,6 +15,8 @@
     "discord.js": "^14.25.1",
     "dotenv": "^16.3.1",
     "googleapis": "^134.0.0",
+    "http-proxy-agent": "^7.0.2",
+    "https-proxy-agent": "^7.0.6",
     "node-7z": "^3.0.0",
     "node-cron": "^3.0.3",
     "node-fetch": "^2.7.0",
