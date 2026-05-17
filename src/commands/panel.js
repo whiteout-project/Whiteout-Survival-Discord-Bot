@@ -9,6 +9,8 @@ const { createNotificationManagementButton } = require('../functions/Notificatio
 const { createSupportButton } = require('../functions/Support/support');
 const { createCalculatorsButton } = require('../functions/Calculators/calculators');
 const { createPluginsButton } = require('../functions/Plugin/plugins');
+const { createAttendanceManagementButton } = require('../functions/Attendance/attendance');
+
 const { PERMISSIONS } = require('../functions/Settings/admin/permissions');
 const { getUserInfo, handleError, hasPermission } = require('../functions/utility/commonFunctions');
 const { checkFeatureAccess } = require('../functions/utility/checkAccess');
@@ -151,6 +153,7 @@ module.exports = {
         const hasAllianceManagement = hasPermission(adminData, PERMISSIONS.FULL_ACCESS, PERMISSIONS.ALLIANCE_MANAGEMENT);
         const hasPlayerManagement = hasPermission(adminData, PERMISSIONS.FULL_ACCESS, PERMISSIONS.PLAYER_MANAGEMENT);
         const hasGiftCodeManagement = hasPermission(adminData, PERMISSIONS.FULL_ACCESS, PERMISSIONS.GIFT_CODE_MANAGEMENT);
+        const hasAttendanceManagement = hasPermission(adminData, PERMISSIONS.FULL_ACCESS, PERMISSIONS.ATTENDANCE_MANAGEMENT);
         const hasCalculatorsAccess = checkFeatureAccess('calculators', interaction);
 
         // Create buttons
@@ -172,6 +175,9 @@ module.exports = {
         if (!adminData?.is_owner) pluginsButton.setDisabled(true);
 
         const supportButton = createSupportButton(interaction.user.id, lang);
+
+        const attendanceButton = createAttendanceManagementButton(interaction.user.id, lang);
+        if (!hasAttendanceManagement) attendanceButton.setDisabled(true);
 
         // Build Components 
         const components = [
@@ -201,7 +207,10 @@ module.exports = {
                         `${lang.panel.mainPage.content.pluginsField.value}\n` +
 
                         `${lang.panel.mainPage.content.settingsField.name}\n` +
-                        `${lang.panel.mainPage.content.settingsField.value}\n`
+                        `${lang.panel.mainPage.content.settingsField.value}\n` +
+
+                        `${lang.panel.mainPage.content.attendanceField.name}\n` +
+                        `${lang.panel.mainPage.content.attendanceField.value}\n`
                     )
                 )
                 .addSeparatorComponents(
@@ -218,7 +227,8 @@ module.exports = {
                     new ActionRowBuilder().addComponents(
                         calculatorsButton,
                         pluginsButton,
-                        settingsButton
+                        settingsButton,
+                        attendanceButton
                     )
                 ),
         ];

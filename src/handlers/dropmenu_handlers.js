@@ -36,6 +36,11 @@ const featureAccess = require('../functions/Settings/featureAccess');
 const dbMigration = require('../functions/Settings/migration');
 const buildings = require('../functions/Calculators/Buildings/buildings');
 const warAcademy = require('../functions/Calculators/WarAcademy/warAcademy');
+const attendanceMark = require('../functions/Attendance/marking');
+const attendanceViewReport = require('../functions/Attendance/viewReport');
+const attendanceSettings = require('../functions/Attendance/settings');
+const attendanceEdit = require('../functions/Attendance/editSession');
+
 
 // === HANDLER REGISTRY ===
 const dropdownHandlers = [
@@ -152,6 +157,16 @@ const dropdownHandlers = [
     { type: 'channel', pattern: /^schedule_board_filter_/, fn: scheduleView.handleBoardFilterChannel },
     { type: 'channel', pattern: /^schedule_board_target_/, fn: scheduleView.handleBoardTargetChannel },
     { type: 'channel', pattern: /^feature_access_whitelist_select_/, fn: featureAccess.handleWhitelistSelect },
+
+    // Attendance selections
+    { type: 'string', pattern: /^attendance_mark_event_/, fn: attendanceMark.handleEventTypeSelect },
+    { type: 'string', pattern: /^attendance_mark_legion_/, fn: attendanceMark.handleLegionSelect },
+    { type: 'string', pattern: /^attendance_mark_select_/, fn: attendanceMark.handleMarkAttendanceSelect },
+    { type: 'string', pattern: /^attendance_report_session_/, fn: attendanceViewReport.handleSessionSelect },
+    { type: 'string', pattern: /^attendance_report_select_/, fn: attendanceViewReport.handleReportSelect },
+    { type: 'string', pattern: /^attendance_settings_sort_select_/, fn: attendanceSettings.handleSettingsSortSelect },
+    { type: 'string', pattern: /^attendance_edit_event_/, fn: attendanceEdit.handleEditEventSelect },
+    { type: 'string', pattern: /^attendance_edit_legion_/, fn: attendanceEdit.handleEditLegionSelect },
 ];
 
 // === SETUP FUNCTION ===

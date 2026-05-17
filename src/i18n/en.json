@@ -24,26 +24,31 @@
 					"name": "- **Settings**",
 					"value": "  - Customize how the bot works for you"
 				},
-				"calculatorsField": {
-					"name": "- **Calculators**",
-					"value": "  - Calculate your upgrade costs, times, and resources"
-				},
-				"pluginsField": {
-					"name": "- **Plugins**",
-					"value": "  - Add new features with official plugins"
-				}
-			},
-			"buttons": {
-				"alliance": "Alliances",
-				"players": "Players",
-				"giftCode": "Gift Codes",
-				"notification": "Notifications",
-				"support": "Support",
-				"settings": "Settings",
-				"calculators": "Calculators",
-				"plugins": "Plugins",
-				"backToPanel": "Back"
-			},
+                "calculatorsField": {
+                    "name": "- **Calculators**",
+                    "value": "  - Calculate your upgrade costs, times, and resources"
+                },
+                "pluginsField": {
+                    "name": "- **Plugins**",
+                    "value": "  - Add new features with official plugins"
+                },
+                "attendanceField": {
+                    "name": "- **Attendance**",
+                    "value": "  - Track player activity and view attendance reports"
+                }
+            },
+            "buttons": {
+                "alliance": "Alliances",
+                "players": "Players",
+                "giftCode": "Gift Codes",
+                "notification": "Notifications",
+                "support": "Support",
+                "settings": "Settings",
+                "calculators": "Calculators",
+                "plugins": "Plugins",
+                "attendance": "Attendance",
+                "backToPanel": "Back"
+            },
 			"errors": {}
 		}
 	},
@@ -2657,15 +2662,17 @@
 				"changeApplied": "Access changed.\n{affectedInfo}",
 				"notificationsDeactivated": "{count} private notification(s) deactivated.",
 				"noNotificationsDeactivated": "No notifications were deactivated.",
-				"updated": "Feature access updated!",
-				"privateNotifications": "private notifications",
-				"calculators": "calculators",
-				"inspect": "inspect"
-			},
-			"buttons": {
-				"privateNotifications": "Private Notifications",
-				"calculators": "Calculators",
-				"inspect": "Inspect",
+                "updated": "Feature access updated!",
+                "privateNotifications": "private notifications",
+                "calculators": "calculators",
+                "inspect": "inspect",
+                "attendance": "attendance"
+            },
+            "buttons": {
+                "privateNotifications": "Private Notifications",
+                "calculators": "Calculators",
+                "inspect": "Inspect",
+                "attendance": "Attendance",
 				"whitelistChannels": "Whitelist Channels",
 				"everyone": "everyone",
 				"admins": "Admins Only",
@@ -2959,14 +2966,134 @@
 					"vpBonus": "VP Bonus: +{pct}%"
 				}
 			},
-			"errors": {
-				"calcFailed": "Couldn't calculate research cost. Check your level selections.",
-				"noSummary": "Couldn't generate summary.",
-				"dmSent": "Summary sent to your DMs!"
-			}
-		}
-	},
-	"processes": {
+            "errors": {
+                "calcFailed": "Couldn't calculate research cost. Check your level selections.",
+                "noSummary": "Couldn't generate summary.",
+                "dmSent": "Summary sent to your DMs!"
+            }
+        }
+    },
+    "attendance": {
+        "mainPage": {
+            "content": {
+                "title": "### {emoji.1021} Attendance Tracking",
+                "description": "Mark player attendance for events and view reports.",
+                "markAttendanceField": {
+                    "name": "- **Mark Attendance**",
+                    "value": "  - Create a session and mark players present/absent"
+                },
+                "viewReportsField": {
+                    "name": "- **View Reports**",
+                    "value": "  - Browse sessions and view attendance summaries"
+                }
+            },
+            "buttons": {
+                "markAttendance": "Mark Attendance",
+                "viewReports": "View Reports",
+                "backToPanel": "Back"
+            },
+            "errors": {}
+        },
+        "markAttendance": {
+            "content": {
+                "title": {
+                    "selectAlliance": "### {emoji.1026} Select Alliance",
+                    "createSession": "### {emoji.1021} Create Session",
+                    "selectEvent": "### {emoji.1021} Select Event Type",
+                    "marking": "### {emoji.1021} Mark Attendance — {sessionName}"
+                },
+                "description": {
+                    "selectAlliance": "Pick an alliance to mark attendance for.",
+                    "createSession": "Enter a name for this attendance session.",
+                    "selectEvent": "What type of event is this?",
+                    "marking": "Mark players as present or absent."
+                },
+                "sessionField": {
+                    "name": "- **Session**",
+                    "value": "  - **Name:** {name}\n  - **Event:** {event}\n  - **Date:** {date}"
+                },
+                "summary": "Present: **{present}/{total}** | Absent: **{absent}**"
+            },
+            "buttons": {
+                "present": "{emoji.1004} Present",
+                "absent": "{emoji.1050} Absent",
+                "back": "Back",
+                "done": "Done",
+                "selectAll": "Select All",
+                "clearAll": "Clear All"
+            },
+            "selectMenu": {
+                "allianceSelect": {
+                    "placeholder": "Pick an alliance",
+                    "description": "Priority: {priority}"
+                },
+                "eventType": {
+                    "placeholder": "Select event type"
+                }
+            },
+            "modal": {
+                "sessionName": {
+                    "title": "Session Name",
+                    "label": "Session name",
+                    "placeholder": "e.g. Bear Trap Week 12"
+                },
+                "eventDate": {
+                    "title": "Event Date (optional)",
+                    "label": "Date (YYYY-MM-DD)",
+                    "placeholder": "Leave blank for today"
+                }
+            },
+            "errors": {
+                "noAlliances": "{emoji.1050} You're not assigned to any alliances.",
+                "noPlayers": "{emoji.1050} No players in this alliance."
+            }
+        },
+        "viewReports": {
+            "content": {
+                "title": {
+                    "selectAlliance": "### {emoji.1026} Select Alliance",
+                    "selectSession": "### {emoji.1021} Select Session",
+                    "report": "### {emoji.1021} Attendance Report — {allianceName}",
+                    "noData": "### {emoji.1050} No Sessions"
+                },
+                "description": {
+                    "selectAlliance": "Pick an alliance to view reports.",
+                    "selectSession": "Pick a session to view.",
+                    "report": "Session: **{sessionName}** — {eventType}",
+                    "noData": "No attendance sessions for this alliance yet."
+                },
+                "summaryField": {
+                    "name": "- **Summary**",
+                    "value": "  - Present: **{present}/{total}**\n  - Absent: **{absent}**"
+                },
+                "playerField": {
+                    "value": "- **{playerName}** — {status}"
+                },
+                "present": "{emoji.1004} Present",
+                "absent": "{emoji.1050} Absent",
+                "notRecorded": "⚪ Not Recorded",
+                "noPlayers": "No players in this alliance."
+            },
+            "buttons": {
+                "backToAllianceSelect": "Back",
+                "refresh": "Refresh"
+            },
+            "selectMenu": {
+                "allianceSelect": {
+                    "placeholder": "Pick an alliance",
+                    "description": "Priority: {priority}"
+                },
+                "sessionSelect": {
+                    "placeholder": "Pick a session"
+                }
+            },
+            "errors": {
+                "noAlliances": "{emoji.1050} You're not assigned to any alliances.",
+                "noSessions": "{emoji.1050} No sessions found."
+            }
+        }
+    },
+    "processes": {
 		"content": {
 			"title": {
 				"processRecovery": "{emoji.1038} Process Crash Recovery",
@@ -3025,11 +3152,15 @@
 			"name": "Notifications",
 			"description": "Create/Edit/Delete/View/Toggle Alarms"
 		},
-		"fullAccess": {
-			"name": "Full Access",
-			"description": "Complete Administrative Access"
-		}
-	},
+        "fullAccess": {
+            "name": "Full Access",
+            "description": "Complete Administrative Access"
+        },
+        "attendance": {
+            "name": "Attendance",
+            "description": "View attendance reports and manage settings"
+        }
+    },
 	"common": {
 		"notForYou": "{emoji.1050} This isn't for you.",
 		"noPermission": "{emoji.1050} You don't have permission to do this.",

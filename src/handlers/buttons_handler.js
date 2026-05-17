@@ -75,6 +75,14 @@ const buildings = require('../functions/Calculators/Buildings/buildings');
 const warAcademy = require('../functions/Calculators/WarAcademy/warAcademy');
 const calculators = require('../functions/Calculators/calculators');
 
+const attendance = require('../functions/Attendance/attendance');
+const attendanceMark = require('../functions/Attendance/marking');
+const attendanceViewReport = require('../functions/Attendance/viewReport');
+const attendanceSettings = require('../functions/Attendance/settings');
+const attendanceEdit = require('../functions/Attendance/editSession');
+
+
+
 
 // === HANDLER REGISTRY ===
 const buttonHandlers = [
@@ -353,7 +361,26 @@ const buttonHandlers = [
     { pattern: /^calc_wa_buffs_/, fn: warAcademy.handleBuffsButton },
     { pattern: /^calc_wa_back_/, fn: warAcademy.handleBackButton },
     { pattern: /^calc_wa_cat_/, fn: warAcademy.handleCategorySelection },
-    { pattern: /^calc_main_wa_/, fn: warAcademy.handleWarAcademyButton }
+    { pattern: /^calc_main_wa_/, fn: warAcademy.handleWarAcademyButton },
+
+    // Attendance Management
+    { pattern: /^attendance_management_/, fn: attendance.handleAttendanceManagementButton },
+    { pattern: /^attendance_mark_done_/, fn: attendanceMark.handleDoneMarking },
+    { pattern: /^attendance_mark_all_/, fn: attendanceMark.handleMarkAll },
+    { pattern: /^attendance_mark_toggle_/, fn: attendanceMark.handleMarkToggle },
+    { pattern: /^attendance_mark_page_/, fn: attendanceMark.handleAlliancePage },
+    { pattern: /^attendance_mark_/, fn: attendanceMark.handleMarkAttendanceButton },
+    { pattern: /^attendance_view_reports_/, fn: attendanceViewReport.handleViewReportsButton },
+    { pattern: /^attendance_settings_report_/, fn: attendanceSettings.handleAttendanceSettingsButton },
+    { pattern: /^attendance_settings_sort_/, fn: attendanceSettings.handleSettingsSortButton },
+    { pattern: /^attendance_edit_rename_/, fn: attendanceEdit.handleEditRename },
+    { pattern: /^attendance_edit_date_/, fn: attendanceEdit.handleEditDate },
+    { pattern: /^attendance_edit_delete_confirm_/, fn: attendanceEdit.handleEditDeleteConfirm },
+    { pattern: /^attendance_edit_delete_cancel_/, fn: attendanceEdit.handleEditDeleteCancel },
+    { pattern: /^attendance_edit_mark_toggle_/, fn: attendanceEdit.handleEditMarkToggle },
+    { pattern: /^attendance_edit_marks_/, fn: attendanceEdit.handleEditMarks },
+    { pattern: /^attendance_edit_delete_/, fn: attendanceEdit.handleEditDelete },
+    { pattern: /^attendance_edit_session_/, fn: attendanceEdit.handleEditSessionButton },
 ];
 
 // === SETUP FUNCTION ===
