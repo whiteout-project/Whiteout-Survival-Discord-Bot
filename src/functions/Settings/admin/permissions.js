@@ -4,7 +4,8 @@ const PERMISSIONS = {
     PLAYER_MANAGEMENT: 1 << 1,      // 2
     GIFT_CODE_MANAGEMENT: 1 << 2,   // 4
     NOTIFICATIONS_MANAGEMENT: 1 << 3, // 8
-    FULL_ACCESS: 1 << 4             // 16
+    FULL_ACCESS: 1 << 4,            // 16
+    ATTENDANCE_MANAGEMENT: 1 << 5   // 32
 };
 
 const { getEmojiMapForUser, getComponentEmoji } = require('../../utility/emojis');

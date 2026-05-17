@@ -31,6 +31,10 @@
                 "pluginsField": {
                     "name": "- **Plugins**",
                     "value": "  - Installer et gérer des plugins pour étendre les fonctionnalités du bot"
+                },
+                "attendanceField": {
+                    "name": "- **Présence**",
+                    "value": "  - Suivre l'activité des joueurs et voir les rapports de présence"
                 }
             },
             "buttons": {
@@ -42,6 +46,7 @@
                 "settings": "Paramètres",
                 "calculators": "Calculatrices",
                 "plugins": "Plugins",
+                "attendance": "Présence",
                 "backToPanel": "Retour"
             },
             "errors": {}
@@ -2660,12 +2665,14 @@
                 "updated": "Accès aux fonctionnalités mis à jour !",
                 "privateNotifications": "notifications privées",
                 "calculators": "calculatrices",
-                "inspect": "inspection"
+                "inspect": "inspection",
+                "attendance": "présence"
             },
             "buttons": {
                 "privateNotifications": "Notifications privées",
                 "calculators": "Calculatrices",
                 "inspect": "Inspection",
+                "attendance": "Présence",
                 "whitelistChannels": "Canaux autorisés",
                 "everyone": "Tous les utilisateurs",
                 "admins": "Admins uniquement",
@@ -2966,6 +2973,227 @@
             }
         }
     },
+    "attendance": {
+        "mainPage": {
+            "content": {
+                "title": "### {emoji.1021} Suivi de Présence",
+                "description": "Marquer la présence des joueurs pour les événements et voir les rapports.",
+                "markAttendanceField": {
+                    "name": "- **Marquer la Présence**",
+                    "value": "  - Créer une session et marquer les joueurs présent/absent"
+                },
+                "viewReportsField": {
+                    "name": "- **Voir les Rapports**",
+                    "value": "  - Parcourir les sessions et voir les résumés"
+                }
+            },
+            "buttons": {
+                "markAttendance": "Marquer la Présence",
+                "viewReports": "Voir les Rapports",
+                "backToPanel": "Retour"
+            },
+            "errors": {}
+        },
+        "markAttendance": {
+            "content": {
+                "title": {
+                    "selectAlliance": "### {emoji.1026} Sélectionner une Alliance",
+                    "createSession": "### {emoji.1021} Créer une Session",
+                    "selectEvent": "### {emoji.1021} Type d'Événement",
+                    "marking": "### {emoji.1021} Marquer la Présence — {sessionName}"
+                },
+                "description": {
+                    "selectAlliance": "Choisissez une alliance pour marquer la présence.",
+                    "createSession": "Entrez un nom pour cette session.",
+                    "selectEvent": "Quel type d'événement ?",
+                    "marking": "Marquez les joueurs comme présent ou absent."
+                },
+                "sessionField": {
+                    "name": "- **Session**",
+                    "value": "  - **Nom :** {name}\n  - **Événement :** {event}\n  - **Date :** {date}"
+                },
+                "summary": "Présent : **{present}/{total}** | Absent : **{absent}**"
+            },
+            "buttons": {
+                "present": "{emoji.1004} Présent",
+                "absent": "{emoji.1050} Absent",
+                "back": "Retour",
+                "done": "Terminé",
+                "selectAll": "Tout Sélectionner",
+                "clearAll": "Tout Effacer"
+            },
+            "selectMenu": {
+                "allianceSelect": {
+                    "placeholder": "Choisir une alliance",
+                    "description": "Priorité : {priority}"
+                },
+                "eventType": {
+                    "placeholder": "Type d'événement"
+                }
+            },
+            "modal": {
+                "sessionName": {
+                    "title": "Nom de Session",
+                    "label": "Nom de la session",
+                    "placeholder": "ex. Piège à Ours Semaine 12"
+                },
+                "eventDate": {
+                    "title": "Date de l'Événement (optionnel)",
+                    "label": "Date (AAAA-MM-JJ HH:MM, optionnel)",
+                    "placeholder": "Laisser vide pour maintenant"
+                },
+                "markPlayer": {
+                    "title": "Marquer le Joueur",
+                    "points": {
+                        "label": "Points (0 pour absent)"
+                    }
+                }
+            },
+            "notSet": "Non défini",
+            "eventTypes": {
+                "Foundry": "🏭 Fonderie",
+                "Canyon Clash": "⚔️ Choc des Canions",
+                "Crazy Joe": "🤪 Crazy Joe",
+                "Bear Trap": "🐻 Piège à Ours",
+                "Castle Battle": "🏰 Bataille du Château",
+                "Frostdragon Tyrant": "🐉 Tyrant Givré",
+                "Other": "📋 Autre"
+            },
+            "legionOptions": {
+                "legion1": "Légion 1",
+                "legion2": "Légion 2"
+            },
+            "errors": {
+                "noAlliances": "{emoji.1050} Vous n'êtes assigné à aucune alliance.",
+                "noPlayers": "{emoji.1050} Aucun joueur dans cette alliance."
+            }
+        },
+        "editSession": {
+            "content": {
+                "title": "### Modifier la Session",
+                "sessionInfo": "**Nom :** {name}\n**Événement :** {event}\n**Date :** {date}",
+                "notSet": "Non défini"
+            },
+            "buttons": {
+                "rename": "Renommer",
+                "editDate": "Modifier Date",
+                "editMarks": "Modifier Notes",
+                "delete": "Supprimer",
+                "back": "Retour"
+            },
+            "selectMenu": {
+                "eventType": {
+                    "placeholder": "Changer le type d'événement"
+                },
+                "legion": {
+                    "placeholder": "Changer la légion",
+                    "notSet": "Non défini"
+                }
+            },
+            "modal": {
+                "rename": {
+                    "title": "Renommer la Session",
+                    "label": "Nouveau nom de session"
+                },
+                "date": {
+                    "title": "Modifier Date/Heure",
+                    "label": "Date (AAAA-MM-JJ HH:MM)"
+                }
+            },
+            "confirmDelete": {
+                "title": "**Confirmer la Suppression**",
+                "description": "Êtes-vous sûr ? Cette action est irréversible.",
+                "confirm": "Confirmer",
+                "cancel": "Annuler"
+            },
+            "errors": {
+                "nameEmpty": "Le nom ne peut pas être vide.",
+                "invalidDate": "Format invalide. Utilisez AAAA-MM-JJ ou AAAA-MM-JJ HH:MM."
+            }
+        },
+        "editMarks": {
+            "content": {
+                "title": "### Modifier Notes — {sessionName}",
+                "eventInfo": "**Événement :** {eventType}",
+                "dateInfo": "**Date :** {date}",
+                "summary": "Présent : **{present}/{total}** | Absent : **{absent}**",
+                "notSet": "Non défini"
+            },
+            "buttons": {
+                "back": "Retour"
+            },
+            "modal": {
+                "editMark": {
+                    "title": "Modifier Note Joueur",
+                    "points": {
+                        "label": "Points (0 pour absent)"
+                    }
+                }
+            }
+        },
+        "settings": {
+            "content": {
+                "title": "### Paramètres de Présence",
+                "reportType": "Type de rapport : **{type}**",
+                "sortOrder": "Tri : **{order}**",
+                "sortTitle": "Choisissez l'ordre de tri pour les rapports :"
+            },
+            "buttons": {
+                "report": "Rapport : {type}",
+                "sort": "Tri : {order}",
+                "back": "Retour"
+            },
+            "selectMenu": {
+                "sortPlaceholder": "Choisir l'ordre de tri"
+            }
+        },
+        "viewReports": {
+            "content": {
+                "title": {
+                    "selectAlliance": "### {emoji.1026} Sélectionner une Alliance",
+                    "selectSession": "### {emoji.1021} Sélectionner une Session",
+                    "report": "### {emoji.1021} Rapport de Présence — {allianceName}",
+                    "noData": "### {emoji.1050} Aucune Session"
+                },
+                "description": {
+                    "selectAlliance": "Choisissez une alliance pour voir les rapports.",
+                    "selectSession": "Choisissez une session à consulter.",
+                    "report": "Session : **{sessionName}** — {eventType}",
+                    "noData": "Aucune session de présence pour cette alliance."
+                },
+                "summaryField": {
+                    "name": "- **Résumé**",
+                    "value": "  - Présent : **{present}/{total}**\n  - Absent : **{absent}**"
+                },
+                "playerField": {
+                    "value": "- **{playerName}** — {status}"
+                },
+                "present": "{emoji.1004} Présent",
+                "absent": "{emoji.1050} Absent",
+                "notRecorded": "⚪ Non Enregistré",
+                "noPlayers": "Aucun joueur dans cette alliance.",
+                "notSet": "Non défini"
+            },
+            "buttons": {
+                "backToAllianceSelect": "Retour",
+                "refresh": "Actualiser",
+                "edit": "Modifier"
+            },
+            "selectMenu": {
+                "allianceSelect": {
+                    "placeholder": "Choisir une alliance",
+                    "description": "Priorité : {priority}"
+                },
+                "sessionSelect": {
+                    "placeholder": "Choisir une session"
+                }
+            },
+            "errors": {
+                "noAlliances": "{emoji.1050} Vous n'êtes assigné à aucune alliance.",
+                "noSessions": "{emoji.1050} Aucune session trouvée."
+            }
+        }
+    },
     "processes": {
         "content": {
             "title": {
@@ -3028,6 +3256,10 @@
         "fullAccess": {
             "name": "Accès Complet",
             "description": "Accès administratif complet"
+        },
+        "attendance": {
+            "name": "Présence",
+            "description": "Voir les rapports de présence et gérer les paramètres"
         }
     },
     "common": {

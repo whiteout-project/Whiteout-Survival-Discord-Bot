@@ -22,6 +22,9 @@ const dbMigration = require('../functions/Settings/migration');
 const backUpCreate = require('../functions/Settings/backup/backupCreate');
 const buildings = require('../functions/Calculators/Buildings/buildings');
 const warAcademy = require('../functions/Calculators/WarAcademy/warAcademy');
+const attendanceMark = require('../functions/Attendance/marking');
+const attendanceEdit = require('../functions/Attendance/editSession');
+
 
 // === HANDLER REGISTRY ===
 const formHandlers = [
@@ -70,7 +73,14 @@ const formHandlers = [
     { pattern: /^calc_buffs_modal_/, fn: buildings.handleBuildingBuffsModal },
     { pattern: /^calc_bld_rmmodal_/, fn: buildings.handleRemoveModal },
     { pattern: /^calc_wa_modal_/, fn: warAcademy.handleBuffsModal },
-    { pattern: /^calc_wa_rmmodal_/, fn: warAcademy.handleRemoveModal }
+    { pattern: /^calc_wa_rmmodal_/, fn: warAcademy.handleRemoveModal },
+
+    // Attendance modals
+    { pattern: /^attendance_session_modal_/, fn: attendanceMark.handleSessionModal },
+    { pattern: /^attendance_mark_toggle_modal_/, fn: attendanceMark.handleMarkToggleModal },
+    { pattern: /^attendance_edit_mark_modal_/, fn: attendanceEdit.handleEditMarkModal },
+    { pattern: /^attendance_edit_rename_modal_/, fn: attendanceEdit.handleEditRenameModal },
+    { pattern: /^attendance_edit_date_modal_/, fn: attendanceEdit.handleEditDateModal },
 ];
 
 // === SETUP FUNCTION ===

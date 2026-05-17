@@ -251,6 +251,38 @@ const schemas = {
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             channel_id TEXT NOT NULL UNIQUE
         )
+    `,
+    attendance_sessions: `
+        CREATE TABLE IF NOT EXISTS attendance_sessions (
+            id TEXT PRIMARY KEY,
+            alliance_id INTEGER NOT NULL REFERENCES alliance(id),
+            session_name TEXT NOT NULL,
+            event_type TEXT NOT NULL DEFAULT 'Other',
+            event_subtype TEXT,
+            event_date TEXT,
+            created_by TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+    `,
+    attendance_records: `
+        CREATE TABLE IF NOT EXISTS attendance_records (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id TEXT NOT NULL REFERENCES attendance_sessions(id),
+            player_id INTEGER NOT NULL,
+            player_name TEXT,
+            status TEXT NOT NULL DEFAULT 'not_recorded',
+            points INTEGER DEFAULT 0,
+            marked_by TEXT,
+            marked_at TEXT,
+            UNIQUE(session_id, player_id)
+        )
+    `,
+    attendance_preferences: `
+        CREATE TABLE IF NOT EXISTS attendance_preferences (
+            user_id TEXT PRIMARY KEY,
+            report_type TEXT NOT NULL DEFAULT 'text',
+            sort_preference TEXT NOT NULL DEFAULT 'points_desc'
+        )
     `
 };
 
@@ -392,6 +424,10 @@ try {
     // Create indexes for notification_messages table
     db.exec('CREATE INDEX IF NOT EXISTS idx_notif_msgs_trigger ON notification_messages (trigger_time)');
     db.exec('CREATE INDEX IF NOT EXISTS idx_notif_msgs_channel ON notification_messages (channel_id)');
+
+    // Create indexes for attendance tables
+    db.exec('CREATE INDEX IF NOT EXISTS idx_attendance_sessions_alliance ON attendance_sessions (alliance_id)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_attendance_records_session ON attendance_records (session_id)');
 } catch (error) {
     console.error('FATAL: Database initialization failed:', error);
     process.exit(1);
@@ -1167,6 +1203,50 @@ const processQueries = {
     `)
 };
 
+// Attendance preferences queries
+const attendancePrefQueries = {
+    get: db.prepare('SELECT * FROM attendance_preferences WHERE user_id = ?'),
+    upsert: db.prepare(`
+        INSERT INTO attendance_preferences (user_id, report_type, sort_preference)
+        VALUES (?, ?, ?)
+        ON CONFLICT(user_id)
+        DO UPDATE SET report_type = excluded.report_type, sort_preference = excluded.sort_preference
+    `)
+};
+
+// Attendance queries (session/event-based)
+const attendanceQueries = {
+    createSession: db.prepare(`
+        INSERT INTO attendance_sessions (id, alliance_id, session_name, event_type, event_subtype, event_date, created_by, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `),
+    getSession: db.prepare('SELECT * FROM attendance_sessions WHERE id = ?'),
+    getSessionsByAlliance: db.prepare('SELECT * FROM attendance_sessions WHERE alliance_id = ? ORDER BY created_at DESC'),
+    getRecentSessions: db.prepare(`
+        SELECT s.*, (SELECT COUNT(*) FROM attendance_records r WHERE r.session_id = s.id) AS record_count
+        FROM attendance_sessions s
+        WHERE s.alliance_id = ?
+        ORDER BY s.created_at DESC LIMIT 50
+    `),
+    deleteSessionRecords: db.prepare('DELETE FROM attendance_records WHERE session_id = ?'),
+    deleteSession: db.prepare('DELETE FROM attendance_sessions WHERE id = ?'),
+    updateSession: db.prepare(`
+        UPDATE attendance_sessions SET session_name = ?, event_type = ?, event_subtype = ?, event_date = ?
+        WHERE id = ?
+    `),
+    upsertRecord: db.prepare(`
+        INSERT INTO attendance_records (session_id, player_id, player_name, status, points, marked_by, marked_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(session_id, player_id)
+        DO UPDATE SET status = excluded.status, points = excluded.points, marked_by = excluded.marked_by, marked_at = excluded.marked_at
+    `),
+    getRecords: db.prepare('SELECT * FROM attendance_records WHERE session_id = ? ORDER BY player_name'),
+    getRecordCount: db.prepare('SELECT COUNT(*) AS cnt FROM attendance_records WHERE session_id = ?'),
+    getPresentCount: db.prepare("SELECT COUNT(*) AS cnt FROM attendance_records WHERE session_id = ? AND status = 'present'"),
+    getAbsentCount: db.prepare("SELECT COUNT(*) AS cnt FROM attendance_records WHERE session_id = ? AND status = 'absent'"),
+    getPlayersByAlliance: db.prepare('SELECT * FROM players WHERE alliance_id = ? AND exist < 3')
+};
+
 // Test ID queries
 const testIdQueries = {
     // Get default test ID (id = 1)
@@ -1265,6 +1345,8 @@ const migrationQueries = {
             db.prepare('DELETE FROM admins').run();
             db.prepare('DELETE FROM users').run();
             db.prepare('DELETE FROM processes').run();
+            db.prepare('DELETE FROM attendance_records').run();
+            db.prepare('DELETE FROM attendance_sessions').run();
             db.prepare('DELETE FROM notifications').run();
             db.prepare('DELETE FROM gift_codes').run();
         })();
@@ -1585,6 +1667,29 @@ module.exports = {
         getUserTestId: () => testIdQueries.getUserTestId.get(),
         getAllTestIds: () => testIdQueries.getAllTestIds.all(),
         updateUserTestId: (fid, setBy) => testIdQueries.updateUserTestId.run(fid, setBy, getCurrentTimestamp())
+    },
+    attendanceQueries: {
+        ...attendanceQueries,
+        createSession: (id, allianceId, sessionName, eventType, eventSubtype, eventDate, createdBy) =>
+            attendanceQueries.createSession.run(id, allianceId, sessionName, eventType, eventSubtype, eventDate, createdBy, getCurrentTimestamp()),
+        getSession: (id) => attendanceQueries.getSession.get(id),
+        getSessionsByAlliance: (allianceId) => attendanceQueries.getSessionsByAlliance.all(allianceId),
+        getRecentSessions: (allianceId) => attendanceQueries.getRecentSessions.all(allianceId),
+        deleteSession: (id) => { attendanceQueries.deleteSessionRecords.run(id); attendanceQueries.deleteSession.run(id); },
+        updateSession: (id, sessionName, eventType, eventSubtype, eventDate) =>
+            attendanceQueries.updateSession.run(sessionName, eventType, eventSubtype, eventDate, id),
+        upsertRecord: (sessionId, playerId, playerName, status, points, markedBy) =>
+            attendanceQueries.upsertRecord.run(sessionId, playerId, playerName, status, points, markedBy, getCurrentTimestamp()),
+        getRecords: (sessionId) => attendanceQueries.getRecords.all(sessionId),
+        getRecordCount: (sessionId) => { const r = attendanceQueries.getRecordCount.get(sessionId); return r ? r.cnt : 0; },
+        getPresentCount: (sessionId) => { const r = attendanceQueries.getPresentCount.get(sessionId); return r ? r.cnt : 0; },
+        getAbsentCount: (sessionId) => { const r = attendanceQueries.getAbsentCount.get(sessionId); return r ? r.cnt : 0; },
+        getPlayersByAlliance: (allianceId) => attendanceQueries.getPlayersByAlliance.all(allianceId)
+    },
+    attendancePrefQueries: {
+        ...attendancePrefQueries,
+        get: (userId) => attendancePrefQueries.get.get(userId),
+        upsert: (userId, reportType, sortPref) => attendancePrefQueries.upsert.run(userId, reportType, sortPref)
     },
     settingsQueries,
     migrationQueries,

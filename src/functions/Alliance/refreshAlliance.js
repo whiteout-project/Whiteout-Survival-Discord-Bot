@@ -604,7 +604,6 @@ class AutoRefreshManager {
                 playerId                                    // fid (WHERE clause)
             );
 
-
         } catch (error) {
             await handleError(null, null, error, 'updatePlayerData', false);
             throw error;
