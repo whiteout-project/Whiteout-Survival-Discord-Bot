@@ -334,7 +334,11 @@ async function handlePlayerIdModal(interaction) {
         // Process uses the same addplayer flow consumed by fetchPlayerData.js
 
         // Create response embed with progress tracking (no existing players to show yet)
+<<<<<<< HEAD
         const responseEmbed = createProcessResponseEmbed(processResult, { status: 'queued' }, alliance, lang, interaction, []);
+=======
+        const responseEmbed = createProcessResponseEmbed(processResult, { status: 'queued' }, alliance, lang, interaction.user.id, []);
+>>>>>>> 01dbc2b4c4d107734da99eb79aa0b39677c24f34
 
         // Get the alliance's configured channel from database
         // If no channel is configured, fall back to interaction channel
@@ -485,20 +489,36 @@ async function createAddPlayerProcess(adminId, allianceId, rawPlayerIds) {
  * @param {Array} existingPlayers - Array of existing players (optional)
  * @returns {EmbedBuilder} Response embed
  */
+<<<<<<< HEAD
 function createProcessResponseEmbed(processResult, queueResult, alliance, lang, interaction, existingPlayers = []) {
+=======
+function createProcessResponseEmbed(processResult, queueResult, alliance, lang, userId, existingPlayers = []) {
+>>>>>>> 01dbc2b4c4d107734da99eb79aa0b39677c24f34
     const playerCount = processResult.player_ids ? processResult.player_ids.split(',').length : 0;
     const emojiMap = getEmojiMapForUser(interaction.user.id);
     let color = "#3498db"; // Default blue
+<<<<<<< HEAD
     let statusEmoji = emojiMap['1021'];
+=======
+    let statusEmoji = getComponentEmoji(getEmojiMapForAdmin(userId), '1021');
+>>>>>>> 01dbc2b4c4d107734da99eb79aa0b39677c24f34
     let statusMessage = lang.players.addPlayer.content.status.queued;
 
     if (queueResult.status === 'active') {
         color = "#00ff00"; // Green
+<<<<<<< HEAD
         statusEmoji = emojiMap['1035'];
         statusMessage = lang.players.addPlayer.content.status.active;
     } else if (queueResult.status === 'queue') {
         color = "#ffa500"; // Orange
         statusEmoji = emojiMap['1021'];
+=======
+        statusEmoji = getComponentEmoji(getEmojiMapForAdmin(userId), '1035');
+        statusMessage = lang.players.addPlayer.content.status.active;
+    } else if (queueResult.status === 'queue') {
+        color = "#ffa500"; // Orange
+        statusEmoji = getComponentEmoji(getEmojiMapForAdmin(userId), '1021');
+>>>>>>> 01dbc2b4c4d107734da99eb79aa0b39677c24f34
         statusMessage = lang.players.addPlayer.content.status.queued;
     }
 

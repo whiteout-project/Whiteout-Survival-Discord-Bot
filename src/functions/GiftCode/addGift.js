@@ -239,12 +239,22 @@ async function startAutoRedeemForAlliances(giftCode, adminId, lang) {
                 }
 
             } catch (allianceError) {
+<<<<<<< HEAD
                 await handleError(interaction, lang, allianceError, 'startAutoRedeemForAlliances_allianceError');
+=======
+                allianceError.message = `${allianceError.message} | context: adminId=${adminId}, giftCode=${giftCode}, alliance=${alliance.name}(${alliance.id})`;
+                await sendError(null, lang, allianceError, 'startAutoRedeemForAlliances_allianceError');
+>>>>>>> 01dbc2b4c4d107734da99eb79aa0b39677c24f34
             }
         }
 
     } catch (error) {
+<<<<<<< HEAD
         await handleError(interaction, lang, error, 'startAutoRedeemForAlliances');
+=======
+        error.message = `${error.message} | context: adminId=${adminId}, giftCode=${giftCode}`;
+        await sendError(null, lang, error, 'startAutoRedeemForAlliances');
+>>>>>>> 01dbc2b4c4d107734da99eb79aa0b39677c24f34
     }
 }
 
