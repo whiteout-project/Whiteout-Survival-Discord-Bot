@@ -3,7 +3,6 @@ const { allianceQueries, attendanceQueries, attendancePrefQueries, systemLogQuer
 const { getUserInfo, assertUserMatches, handleError, hasPermission } = require('../utility/commonFunctions');
 const { PERMISSIONS } = require('../Settings/admin/permissions');
 const { getEmojiMapForUser, getComponentEmoji } = require('./../utility/emojis');
-const { EVENT_TYPES, EVENT_TYPE_ICONS, LEGION_EVENTS } = require('./marking');
 
 const SORT_OPTIONS = [
     { value: 'points_desc', fn: (records) => [...records].sort((a, b) => {
@@ -87,10 +86,13 @@ async function handleReportSelect(interaction) {
         const select = new StringSelectMenuBuilder()
             .setCustomId(`attendance_report_session_${interaction.user.id}_${allianceId}`)
             .setPlaceholder(lang.attendance.viewReports.selectMenu.sessionSelect.placeholder)
-            .addOptions(sessions.map(s => new StringSelectMenuOptionBuilder()
-                .setLabel(`${s.session_name} (${s.event_type || 'Other'})`)
-                .setValue(s.id)
-                .setDescription(`Records: ${s.record_count || 0} | ${s.event_date || ''}`)));
+            .addOptions(sessions.map(s => {
+                const eventLabel = lang.attendance.markAttendance.eventTypes[s.event_type || 'Other'] || '\u{1F4CB} ' + (s.event_type || 'Other');
+                return new StringSelectMenuOptionBuilder()
+                    .setLabel(s.session_name + ' (' + eventLabel + ')')
+                    .setValue(s.id)
+                    .setDescription('Records: ' + (s.record_count || 0) + ' | ' + (s.event_date || ''));
+            }))
 
         const components = [new ContainerBuilder().setAccentColor(2417109)
             .addTextDisplayComponents(new TextDisplayBuilder().setContent(`${lang.attendance.viewReports.content.title.selectSession}\n${lang.attendance.viewReports.content.description.selectSession}`))
@@ -129,7 +131,8 @@ async function handleSessionSelect(interaction) {
             return `- **${r.player_name || `ID:${r.player_id}`}** — ${status}${pts}`;
         }).join('\n');
 
-        const eventLabel = session.event_subtype ? `${EVENT_TYPE_ICONS[session.event_type] || ''} ${session.event_type} (${session.event_subtype})` : `${EVENT_TYPE_ICONS[session.event_type] || ''} ${session.event_type || 'Other'}`;
+        const eventLabel = lang.attendance.markAttendance.eventTypes[session.event_type] || `📋 ${session.event_type || 'Other'}`;
+        const eventStr = session.event_subtype ? `${eventLabel} (${session.event_subtype})` : eventLabel;
 
         const back = new ButtonBuilder()
             .setCustomId(`attendance_view_reports_${interaction.user.id}`)
@@ -139,12 +142,12 @@ async function handleSessionSelect(interaction) {
 
         const editBtn = new ButtonBuilder()
             .setCustomId(`attendance_edit_session_${interaction.user.id}_${sessionId}`)
-            .setLabel('Edit')
+            .setLabel(lang.attendance.viewReports.buttons.edit)
             .setStyle(ButtonStyle.Secondary);
 
         const components = [new ContainerBuilder().setAccentColor(2417109)
             .addTextDisplayComponents(new TextDisplayBuilder().setContent(
-                `${lang.attendance.viewReports.content.title.report.replace('{allianceName}', alliance.name)}\nSession: **${session.session_name}** — ${eventLabel}\nDate: **${session.event_date || 'Not set'}**\n\n` +
+                `${lang.attendance.viewReports.content.title.report.replace('{allianceName}', alliance.name)}\nSession: **${session.session_name}** — ${eventStr}\nDate: **${session.event_date || lang.attendance.viewReports.content.notSet}**\n\n` +
                 `${lang.attendance.viewReports.content.summaryField.value.replace('{present}', present).replace('{total}', total).replace('{absent}', absent)}\n\n${playerLines || lang.attendance.viewReports.content.noPlayers}`
             ))
             .addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true))

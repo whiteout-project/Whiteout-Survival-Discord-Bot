@@ -26,19 +26,21 @@ async function showSettings(interaction) {
     const { lang } = getUserInfo(interaction.user.id);
     const prefs = attendancePrefQueries.get(interaction.user.id) || { report_type: 'text', sort_preference: 'points_desc' };
 
+    const sortLabel = SORT_OPTIONS.find(s => s.value === prefs.sort_preference)?.label || 'Points';
+
     const reportBtn = new ButtonBuilder()
         .setCustomId(`attendance_settings_report_${interaction.user.id}`)
-        .setLabel(`Report: ${prefs.report_type === 'text' ? 'Text' : 'Text'}`)
+        .setLabel(lang.attendance.settings.buttons.report.replace('{type}', 'Text'))
         .setStyle(ButtonStyle.Secondary);
 
     const sortBtn = new ButtonBuilder()
         .setCustomId(`attendance_settings_sort_${interaction.user.id}`)
-        .setLabel(`Sort: ${SORT_OPTIONS.find(s => s.value === prefs.sort_preference)?.label || 'Points'}`)
+        .setLabel(lang.attendance.settings.buttons.sort.replace('{order}', sortLabel))
         .setStyle(ButtonStyle.Secondary);
 
     const back = new ButtonBuilder()
         .setCustomId(`attendance_management_${interaction.user.id}`)
-        .setLabel('Back')
+        .setLabel(lang.attendance.settings.buttons.back)
         .setStyle(ButtonStyle.Secondary)
         .setEmoji(getComponentEmoji(getEmojiMapForUser(interaction.user.id), '1024'));
 
@@ -47,7 +49,7 @@ async function showSettings(interaction) {
             .setAccentColor(2417109)
             .addTextDisplayComponents(
                 new TextDisplayBuilder().setContent(
-                    `### Attendance Settings\nReport type: **${prefs.report_type === 'text' ? 'Text' : 'Text'}**\nSort: **${SORT_OPTIONS.find(s => s.value === prefs.sort_preference)?.label || 'Points'}**`
+                    `${lang.attendance.settings.content.title}\n${lang.attendance.settings.content.reportType.replace('{type}', 'Text')}\n${lang.attendance.settings.content.sortOrder.replace('{order}', sortLabel)}`
                 )
             )
             .addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true))
@@ -80,7 +82,7 @@ async function handleSettingsSortButton(interaction) {
 
         const select = new StringSelectMenuBuilder()
             .setCustomId(`attendance_settings_sort_select_${interaction.user.id}`)
-            .setPlaceholder('Select sort order')
+            .setPlaceholder(lang.attendance.settings.selectMenu.sortPlaceholder)
             .addOptions(SORT_OPTIONS.map(o =>
                 new StringSelectMenuOptionBuilder().setLabel(o.label).setValue(o.value).setDescription(o.description)
             ));
@@ -88,7 +90,7 @@ async function handleSettingsSortButton(interaction) {
         const components = [
             new ContainerBuilder()
                 .setAccentColor(2417109)
-                .addTextDisplayComponents(new TextDisplayBuilder().setContent('Choose sort order for attendance reports:'))
+                .addTextDisplayComponents(new TextDisplayBuilder().setContent(lang.attendance.settings.content.sortTitle))
                 .addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true))
                 .addActionRowComponents(new ActionRowBuilder().addComponents(select)),
         ];

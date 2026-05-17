@@ -3039,13 +3039,112 @@
                 },
                 "eventDate": {
                     "title": "Event Date (optional)",
-                    "label": "Date (YYYY-MM-DD)",
-                    "placeholder": "Leave blank for today"
+                    "label": "Date (YYYY-MM-DD HH:MM, optional)",
+                    "placeholder": "Leave blank for now"
+                },
+                "markPlayer": {
+                    "title": "Mark Player",
+                    "points": {
+                        "label": "Points (0 for absent)"
+                    }
                 }
+            },
+            "notSet": "Not set",
+            "eventTypes": {
+                "Foundry": "🏭 Foundry",
+                "Canyon Clash": "⚔️ Canyon Clash",
+                "Crazy Joe": "🤪 Crazy Joe",
+                "Bear Trap": "🐻 Bear Trap",
+                "Castle Battle": "🏰 Castle Battle",
+                "Frostdragon Tyrant": "🐉 Frostdragon Tyrant",
+                "Other": "📋 Other"
+            },
+            "legionOptions": {
+                "legion1": "Legion 1",
+                "legion2": "Legion 2"
             },
             "errors": {
                 "noAlliances": "{emoji.1050} You're not assigned to any alliances.",
                 "noPlayers": "{emoji.1050} No players in this alliance."
+            }
+        },
+        "editSession": {
+            "content": {
+                "title": "### Edit Session",
+                "sessionInfo": "**Name:** {name}\n**Event:** {event}\n**Date:** {date}",
+                "notSet": "Not set"
+            },
+            "buttons": {
+                "rename": "Rename Session",
+                "editDate": "Edit Date",
+                "editMarks": "Edit Marks",
+                "delete": "Delete Event",
+                "back": "Back"
+            },
+            "selectMenu": {
+                "eventType": {
+                    "placeholder": "Change event type"
+                },
+                "legion": {
+                    "placeholder": "Change legion",
+                    "notSet": "Not Set"
+                }
+            },
+            "modal": {
+                "rename": {
+                    "title": "Rename Session",
+                    "label": "New session name"
+                },
+                "date": {
+                    "title": "Edit Event Date/Time",
+                    "label": "Date (YYYY-MM-DD HH:MM)"
+                }
+            },
+            "confirmDelete": {
+                "title": "**Confirm Delete**",
+                "description": "Are you sure? This cannot be undone.",
+                "confirm": "Confirm Delete",
+                "cancel": "Cancel"
+            },
+            "errors": {
+                "nameEmpty": "Name cannot be empty.",
+                "invalidDate": "Invalid format. Use YYYY-MM-DD or YYYY-MM-DD HH:MM."
+            }
+        },
+        "editMarks": {
+            "content": {
+                "title": "### Edit Marks — {sessionName}",
+                "eventInfo": "**Event:** {eventType}",
+                "dateInfo": "**Date:** {date}",
+                "summary": "Present: **{present}/{total}** | Absent: **{absent}**",
+                "notSet": "Not set"
+            },
+            "buttons": {
+                "back": "Back"
+            },
+            "modal": {
+                "editMark": {
+                    "title": "Edit Player Mark",
+                    "points": {
+                        "label": "Points (0 for absent)"
+                    }
+                }
+            }
+        },
+        "settings": {
+            "content": {
+                "title": "### Attendance Settings",
+                "reportType": "Report type: **{type}**",
+                "sortOrder": "Sort: **{order}**",
+                "sortTitle": "Choose sort order for attendance reports:"
+            },
+            "buttons": {
+                "report": "Report: {type}",
+                "sort": "Sort: {order}",
+                "back": "Back"
+            },
+            "selectMenu": {
+                "sortPlaceholder": "Select sort order"
             }
         },
         "viewReports": {
@@ -3072,11 +3171,13 @@
                 "present": "{emoji.1004} Present",
                 "absent": "{emoji.1050} Absent",
                 "notRecorded": "⚪ Not Recorded",
-                "noPlayers": "No players in this alliance."
+                "noPlayers": "No players in this alliance.",
+                "notSet": "Not set"
             },
             "buttons": {
                 "backToAllianceSelect": "Back",
-                "refresh": "Refresh"
+                "refresh": "Refresh",
+                "edit": "Edit"
             },
             "selectMenu": {
                 "allianceSelect": {

@@ -133,8 +133,8 @@ async function handleSessionModal(interaction) {
 
         const select = new StringSelectMenuBuilder()
             .setCustomId(`attendance_mark_event_${interaction.user.id}_${allianceId}_${sessionId}`)
-            .setPlaceholder('Select event type')
-            .addOptions(EVENT_TYPES.map(et => new StringSelectMenuOptionBuilder().setLabel(`${EVENT_TYPE_ICONS[et] || '📋'} ${et}`).setValue(et)));
+            .setPlaceholder(lang.attendance.markAttendance.selectMenu.eventType.placeholder)
+            .addOptions(EVENT_TYPES.map(et => new StringSelectMenuOptionBuilder().setLabel(lang.attendance.markAttendance.eventTypes[et] || `📋 ${et}`).setValue(et)));
 
         const back = new ButtonBuilder()
             .setCustomId(`attendance_mark_${interaction.user.id}`)
@@ -143,7 +143,7 @@ async function handleSessionModal(interaction) {
             .setEmoji(getComponentEmoji(getEmojiMapForUser(interaction.user.id), '1024'));
 
         const components = [new ContainerBuilder().setAccentColor(2417109)
-            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`### Select Event Type\nSession: **${sessionName}**\nDate: **${eventDate || 'Not set'}**`))
+            .addTextDisplayComponents(new TextDisplayBuilder().setContent(`### Select Event Type\nSession: **${sessionName}**\nDate: **${eventDate || lang.attendance.markAttendance.notSet}**`))
             .addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true))
             .addActionRowComponents(new ActionRowBuilder().addComponents(select), new ActionRowBuilder().addComponents(back))];
 
@@ -167,10 +167,10 @@ async function handleEventTypeSelect(interaction) {
             attendanceQueries.updateSession(sessionId, attendanceQueries.getSession(sessionId)?.session_name || '', eventType, null, null);
             const select = new StringSelectMenuBuilder()
                 .setCustomId(`attendance_mark_legion_${interaction.user.id}_${allianceId}_${sessionId}`)
-                .setPlaceholder('Select legion')
-                .addOptions([1,2].map(l => new StringSelectMenuOptionBuilder().setLabel(`Legion ${l}`).setValue(`Legion ${l}`)));
+                .setPlaceholder(lang.attendance.markAttendance.legionOptions.selectLegion)
+                .addOptions([1,2].map(l => new StringSelectMenuOptionBuilder().setLabel(lang.attendance.markAttendance.legionOptions[`legion${l}`] || `Legion ${l}`).setValue(`Legion ${l}`)));
             return await interaction.update({ components: [new ContainerBuilder().setAccentColor(2417109)
-                .addTextDisplayComponents(new TextDisplayBuilder().setContent(`Select legion for **${EVENT_TYPE_ICONS[eventType] || ''} ${eventType}**:`))
+                .addTextDisplayComponents(new TextDisplayBuilder().setContent(lang.attendance.markAttendance.legionOptions.legionFor.replace('{event}', lang.attendance.markAttendance.eventTypes[eventType] || `📋 ${eventType}`)))
                 .addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true))
                 .addActionRowComponents(new ActionRowBuilder().addComponents(select))], flags: MessageFlags.IsComponentsV2 });
         }
@@ -240,25 +240,26 @@ async function renderMarkingUI(interaction, sessionId, session, players, eventTy
 
     const selectAll = new ButtonBuilder()
         .setCustomId(`attendance_mark_all_${interaction.user.id}_${sessionId}_present`)
-        .setLabel('Select All Present')
-        .setStyle(ButtonStyle.Success);
+                .setLabel(lang.attendance.markAttendance.buttons.selectAll)
+                .setStyle(ButtonStyle.Success);
     const clearAll = new ButtonBuilder()
         .setCustomId(`attendance_mark_all_${interaction.user.id}_${sessionId}_absent`)
-        .setLabel('All Absent')
+        .setLabel(lang.attendance.markAttendance.buttons.clearAll)
         .setStyle(ButtonStyle.Danger);
     const done = new ButtonBuilder()
         .setCustomId(`attendance_mark_done_${interaction.user.id}_${sessionId}`)
-        .setLabel('Done')
+        .setLabel(lang.attendance.markAttendance.buttons.done)
         .setStyle(ButtonStyle.Primary);
 
     rows.push(new ActionRowBuilder().addComponents(selectAll, clearAll, done));
 
-    const eventLabel = eventSubtype ? `${EVENT_TYPE_ICONS[eventType] || ''} ${eventType} (${eventSubtype})` : `${EVENT_TYPE_ICONS[eventType] || ''} ${eventType}`;
+    const eventTypeLabel = lang.attendance.markAttendance.eventTypes[eventType] || `📋 ${eventType}`;
+    const eventLabel = eventSubtype ? `${eventTypeLabel} (${eventSubtype})` : eventTypeLabel;
     const summary = `Present: **${present}/${total}** | Absent: **${absent}**`;
 
     const components = [new ContainerBuilder().setAccentColor(2417109)
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(
-            `### Mark Attendance — ${session.session_name}\n**Event:** ${eventLabel}\n**Date:** ${session.event_date || 'Not set'}\n\n${summary}`
+            `### Mark Attendance — ${session.session_name}\n**Event:** ${eventLabel}\n**Date:** ${session.event_date || lang.attendance.markAttendance.notSet}\n\n${summary}`
         ))
         .addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true))
         .addActionRowComponents(...rows)];
@@ -279,12 +280,12 @@ async function handleMarkToggle(interaction) {
 
         const modal = new ModalBuilder()
             .setCustomId(`attendance_mark_toggle_modal_${interaction.user.id}_${sessionId}_${playerId}`)
-            .setTitle('Mark Player')
+            .setTitle(lang.attendance.markAttendance.modal.markPlayer.title)
             .addComponents(
                 new ActionRowBuilder().addComponents(
                     new TextInputBuilder()
                         .setCustomId('points')
-                        .setLabel('Points (0 for absent)')
+                        .setLabel(lang.attendance.markAttendance.modal.markPlayer.points.label)
                         .setStyle(TextInputStyle.Short)
                         .setRequired(true)
                         .setValue(String(rec?.points ?? 1))

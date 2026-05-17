@@ -28,60 +28,61 @@ async function showEditScreen(interaction, sessionId) {
 
     const renameBtn = new ButtonBuilder()
         .setCustomId(`attendance_edit_rename_${interaction.user.id}_${sessionId}`)
-        .setLabel('Rename Session')
+        .setLabel(lang.attendance.editSession.buttons.rename)
         .setStyle(ButtonStyle.Secondary);
 
     const dateBtn = new ButtonBuilder()
         .setCustomId(`attendance_edit_date_${interaction.user.id}_${sessionId}`)
-        .setLabel('Edit Date')
+        .setLabel(lang.attendance.editSession.buttons.editDate)
         .setStyle(ButtonStyle.Secondary);
-
-    const eventSelect = new StringSelectMenuBuilder()
-        .setCustomId(`attendance_edit_event_${interaction.user.id}_${sessionId}`)
-        .setPlaceholder('Change event type')
-        .addOptions(EVENT_TYPES.map(et =>
-            new StringSelectMenuOptionBuilder().setLabel(et).setValue(et).setDefault(et === session.event_type)
-        ));
 
     const editMarksBtn = new ButtonBuilder()
         .setCustomId(`attendance_edit_marks_${interaction.user.id}_${sessionId}`)
-        .setLabel('Edit Marks')
+        .setLabel(lang.attendance.editSession.buttons.editMarks)
         .setStyle(ButtonStyle.Primary);
 
     const deleteBtn = new ButtonBuilder()
         .setCustomId(`attendance_edit_delete_${interaction.user.id}_${sessionId}`)
-        .setLabel('Delete Event')
+        .setLabel(lang.attendance.editSession.buttons.delete)
         .setStyle(ButtonStyle.Danger);
 
     const back = new ButtonBuilder()
         .setCustomId(`attendance_view_reports_${interaction.user.id}`)
-        .setLabel('Back')
+        .setLabel(lang.attendance.editSession.buttons.back)
         .setStyle(ButtonStyle.Secondary)
         .setEmoji(getComponentEmoji(getEmojiMapForUser(interaction.user.id), '1024'));
+
+    const eventSelect = new StringSelectMenuBuilder()
+        .setCustomId(`attendance_edit_event_${interaction.user.id}_${sessionId}`)
+        .setPlaceholder(lang.attendance.editSession.selectMenu.eventType.placeholder)
+        .addOptions(EVENT_TYPES.map(et => new StringSelectMenuOptionBuilder().setLabel(lang.attendance.markAttendance.eventTypes[et] || `📋 ${et}`).setValue(et).setDefault(et === session.event_type)));
 
     const rows = [new ActionRowBuilder().addComponents(renameBtn, dateBtn, back)];
     rows.push(new ActionRowBuilder().addComponents(eventSelect));
     if (LEGION_EVENTS.includes(session.event_type)) {
-        const legionOpts = ['Not Set', 'Legion 1', 'Legion 2'].map(l =>
-            new StringSelectMenuOptionBuilder().setLabel(l).setValue(l).setDefault(l === (session.event_subtype || 'Not Set'))
+        const legionValues = ['Not Set', 'Legion 1', 'Legion 2'];
+        const legionLabels = [lang.attendance.editSession.selectMenu.legion.notSet, lang.attendance.markAttendance.legionOptions.legion1, lang.attendance.markAttendance.legionOptions.legion2];
+        const legionOpts = legionLabels.map((l, i) =>
+            new StringSelectMenuOptionBuilder().setLabel(l).setValue(legionValues[i]).setDefault(legionValues[i] === (session.event_subtype || 'Not Set'))
         );
         rows.push(new ActionRowBuilder().addComponents(
             new StringSelectMenuBuilder()
                 .setCustomId(`attendance_edit_legion_${interaction.user.id}_${sessionId}`)
-                .setPlaceholder('Change legion')
+                .setPlaceholder(lang.attendance.editSession.selectMenu.legion.placeholder)
                 .addOptions(legionOpts)
         ));
     }
     rows.push(new ActionRowBuilder().addComponents(editMarksBtn));
     rows.push(new ActionRowBuilder().addComponents(deleteBtn));
 
-    const eventLabel = session.event_subtype ? `${session.event_type} (${session.event_subtype})` : session.event_type;
+    const editEventLabel = lang.attendance.markAttendance.eventTypes[session.event_type] || `📋 ${session.event_type}`;
+    const editEventStr = session.event_subtype ? `${editEventLabel} (${session.event_subtype})` : editEventLabel;
     const components = [
         new ContainerBuilder()
             .setAccentColor(2417109)
             .addTextDisplayComponents(
                 new TextDisplayBuilder().setContent(
-                    `### Edit Session\n**Name:** ${session.session_name}\n**Event:** ${eventLabel}\n**Date:** ${session.event_date || 'Not set'}`
+                    `${lang.attendance.editSession.content.title}\n${lang.attendance.editSession.content.sessionInfo.replace('{name}', session.session_name).replace('{event}', editEventStr).replace('{date}', session.event_date || lang.attendance.editSession.content.notSet)}`
                 )
             )
             .addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true))
@@ -103,12 +104,12 @@ async function handleEditRename(interaction) {
 
         const modal = new ModalBuilder()
             .setCustomId(`attendance_edit_rename_modal_${interaction.user.id}_${sessionId}`)
-            .setTitle('Rename Session')
+            .setTitle(lang.attendance.editSession.modal.rename.title)
             .addComponents(
                 new ActionRowBuilder().addComponents(
                     new TextInputBuilder()
                         .setCustomId('session_name')
-                        .setLabel('New session name')
+                        .setLabel(lang.attendance.editSession.modal.rename.label)
                         .setStyle(TextInputStyle.Short)
                         .setRequired(true)
                         .setMaxLength(50)
@@ -129,7 +130,7 @@ async function handleEditRenameModal(interaction) {
         if (!(await assertUserMatches(interaction, expectedUserId, lang))) return;
         const sessionId = parts[5];
         const name = interaction.fields.getTextInputValue('session_name').trim();
-        if (!name) return await interaction.reply({ content: 'Name cannot be empty.', ephemeral: true });
+        if (!name) return await interaction.reply({ content: lang.attendance.editSession.errors.nameEmpty, ephemeral: true });
 
         const session = attendanceQueries.getSession(sessionId);
         if (!session) return await interaction.reply({ content: lang.common.error, ephemeral: true });
@@ -151,12 +152,12 @@ async function handleEditDate(interaction) {
 
         const modal = new ModalBuilder()
             .setCustomId(`attendance_edit_date_modal_${interaction.user.id}_${sessionId}`)
-            .setTitle('Edit Event Date/Time')
+            .setTitle(lang.attendance.editSession.modal.date.title)
             .addComponents(
                 new ActionRowBuilder().addComponents(
                     new TextInputBuilder()
                         .setCustomId('event_date')
-                        .setLabel('Date (YYYY-MM-DD HH:MM)')
+                        .setLabel(lang.attendance.editSession.modal.date.label)
                         .setStyle(TextInputStyle.Short)
                         .setRequired(false)
                         .setMaxLength(16)
@@ -181,7 +182,7 @@ async function handleEditDateModal(interaction) {
         if (!session) return await interaction.reply({ content: lang.common.error, ephemeral: true });
 
         if (raw && !/^\d{4}-\d{2}-\d{2}( \d{2}:\d{2})?$/.test(raw)) {
-            return await interaction.reply({ content: 'Invalid format. Use YYYY-MM-DD or YYYY-MM-DD HH:MM.', ephemeral: true });
+            return await interaction.reply({ content: lang.attendance.editSession.errors.invalidDate, ephemeral: true });
         }
         const date = raw || session.event_date;
         attendanceQueries.updateSession(sessionId, session.session_name, session.event_type, session.event_subtype, date);
@@ -237,19 +238,19 @@ async function handleEditDelete(interaction) {
 
         const confirm = new ButtonBuilder()
             .setCustomId(`attendance_edit_delete_confirm_${interaction.user.id}_${sessionId}`)
-            .setLabel('Confirm Delete')
+            .setLabel(lang.attendance.editSession.confirmDelete.confirm)
             .setStyle(ButtonStyle.Danger);
 
         const cancel = new ButtonBuilder()
             .setCustomId(`attendance_edit_delete_cancel_${interaction.user.id}_${sessionId}`)
-            .setLabel('Cancel')
+            .setLabel(lang.attendance.editSession.confirmDelete.cancel)
             .setStyle(ButtonStyle.Secondary);
 
         const components = [
             new ContainerBuilder()
                 .setAccentColor(15158332)
                 .addTextDisplayComponents(
-                    new TextDisplayBuilder().setContent('**Confirm Delete**\nAre you sure? This cannot be undone.')
+                    new TextDisplayBuilder().setContent(`${lang.attendance.editSession.confirmDelete.title}\n${lang.attendance.editSession.confirmDelete.description}`)
                 )
                 .addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true))
                 .addActionRowComponents(new ActionRowBuilder().addComponents(confirm, cancel)),
@@ -331,18 +332,19 @@ async function renderEditMarksUI(interaction, sessionId, session, players) {
 
     const back = new ButtonBuilder()
         .setCustomId(`attendance_edit_session_${interaction.user.id}_${sessionId}`)
-        .setLabel('Back')
+        .setLabel(lang.attendance.editMarks.buttons.back)
         .setStyle(ButtonStyle.Secondary)
         .setEmoji(getComponentEmoji(getEmojiMapForUser(interaction.user.id), '1024'));
 
     rows.push(new ActionRowBuilder().addComponents(back));
 
-    const eventLabel = session.event_subtype ? `${session.event_type} (${session.event_subtype})` : session.event_type;
-    const summary = `Present: **${present}/${total}** | Absent: **${absent}**`;
+    const editMarksEventLabel = lang.attendance.markAttendance.eventTypes[session.event_type] || `📋 ${session.event_type}`;
+    const editMarksEventStr = session.event_subtype ? `${editMarksEventLabel} (${session.event_subtype})` : editMarksEventLabel;
+    const summary = lang.attendance.editMarks.content.summary.replace('{present}', present).replace('{total}', total).replace('{absent}', absent);
 
     const components = [new ContainerBuilder().setAccentColor(2417109)
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(
-            `### Edit Marks — ${session.session_name}\n**Event:** ${eventLabel}\n**Date:** ${session.event_date || 'Not set'}\n\n${summary}`
+            `${lang.attendance.editMarks.content.title.replace('{sessionName}', session.session_name)}\n${lang.attendance.editMarks.content.eventInfo.replace('{eventType}', editMarksEventStr)}\n${lang.attendance.editMarks.content.dateInfo.replace('{date}', session.event_date || lang.attendance.editMarks.content.notSet)}\n\n${summary}`
         ))
         .addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true))
         .addActionRowComponents(...rows)];
@@ -363,12 +365,12 @@ async function handleEditMarkToggle(interaction) {
 
         const modal = new ModalBuilder()
             .setCustomId(`attendance_edit_mark_modal_${interaction.user.id}_${sessionId}_${playerId}`)
-            .setTitle('Edit Player Mark')
+            .setTitle(lang.attendance.editMarks.modal.editMark.title)
             .addComponents(
                 new ActionRowBuilder().addComponents(
                     new TextInputBuilder()
                         .setCustomId('points')
-                        .setLabel('Points (0 for absent)')
+                        .setLabel(lang.attendance.editMarks.modal.editMark.points.label)
                         .setStyle(TextInputStyle.Short)
                         .setRequired(true)
                         .setValue(String(rec?.points ?? 1))
