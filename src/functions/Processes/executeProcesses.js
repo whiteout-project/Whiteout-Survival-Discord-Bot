@@ -163,6 +163,12 @@ class ProcessExecutor {
                 await this.executeRedeemGiftcode(processId);
                 break;
 
+            case 'state_search': {
+                const { executeStateSearch } = require('../GiftCode/stateSearch');
+                await this.executeWithErrorHandling(processId, executeStateSearch, 'state_search');
+                break;
+            }
+
             case 'auto_refresh':
                 // Drain auto-refresh jobs queued before the profile API was removed.
                 await updateProcessStatus(processId, PROCESS_STATUS.COMPLETED);

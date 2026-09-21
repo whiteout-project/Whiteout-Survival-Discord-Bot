@@ -106,6 +106,9 @@ class ProcessRecovery {
                 await this.handleCrashedAutoRefresh(process);
                 return false; // No confirmation needed
             }
+            if (process.action === 'state_search') {
+                return false; // Saved scan progress resumes from the queue.
+            }
 
             // Special handling for validation-only redeem processes (no confirmation needed)
             // These are lightweight single-code checks created by SYSTEM_API_SYNC.

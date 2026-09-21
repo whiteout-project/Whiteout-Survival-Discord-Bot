@@ -134,6 +134,17 @@ node starter.js --type=ks
 node starter.js --type=both
 ```
 
+### Self-hosted web panel login
+
+To serve the web panel on your own HTTPS domain, set these in the bot's `src/.env` and restart the bot:
+
+```dotenv
+PUBLIC_URL=https://panel.example.com
+WEB_PANEL_CLIENT_SECRET=your_discord_application_client_secret
+```
+
+Set the Discord application's OAuth2 redirect URI to `https://panel.example.com/auth/callback`. Reverse proxy the domain to the web panel's local port (default `3010`), preserving the `Host` header and HTTPS forwarding. If you use `WEB_PANEL_BASE_PATH`, include that path in `PUBLIC_URL` and the redirect URI. Keep the client secret private. Run `/webpanel` to get your panel URL.
+
 ### Slash Commands
 
 | Command | Description |

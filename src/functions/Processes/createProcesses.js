@@ -24,7 +24,8 @@ const { normalizeGameType } = require('../utility/gameProfiles');
  */
 const PROCESS_PRIORITIES = {
     ADD_PLAYER: 100000,
-    REDEEM_GIFTCODE: 200000
+    REDEEM_GIFTCODE: 200000,
+    STATE_SEARCH: 300000
 };
 
 /**
@@ -114,6 +115,9 @@ async function createProcess(processData) {
                 break;
             case 'redeem_giftcode':
                 basePriority = PROCESS_PRIORITIES.REDEEM_GIFTCODE;
+                break;
+            case 'state_search':
+                basePriority = PROCESS_PRIORITIES.STATE_SEARCH;
                 break;
             default:
                 throw new Error(`Unsupported process action: ${action}`);

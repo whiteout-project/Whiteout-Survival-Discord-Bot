@@ -117,6 +117,7 @@ const schemas = {
             furnace_level INTEGER,
             state INTEGER,
             state_override INTEGER,
+            state_search_blocked_for INTEGER,
             image_url TEXT,
             alliance_id INTEGER,
             added_by TEXT NOT NULL,
@@ -169,6 +170,14 @@ const schemas = {
             fid INTEGER NOT NULL,
             gift_code TEXT NOT NULL,
             status TEXT
+        )
+    `,
+    state_search_retries: `
+        CREATE TABLE IF NOT EXISTS state_search_retries (
+            game_type TEXT NOT NULL,
+            fid INTEGER NOT NULL,
+            gift_code TEXT NOT NULL,
+            PRIMARY KEY (game_type, fid, gift_code)
         )
     `,
     notifications: `
@@ -414,6 +423,7 @@ try {
                     furnace_level INTEGER,
                     state INTEGER,
                     state_override INTEGER,
+                    state_search_blocked_for INTEGER,
                     image_url TEXT,
                     alliance_id INTEGER,
                     added_by TEXT NOT NULL,
@@ -437,8 +447,11 @@ try {
         if (!playerCols.some(c => c.name === 'state_override')) {
             db.exec('ALTER TABLE players ADD COLUMN state_override INTEGER');
         }
+        if (!playerCols.some(c => c.name === 'state_search_blocked_for')) {
+            db.exec('ALTER TABLE players ADD COLUMN state_search_blocked_for INTEGER');
+        }
     } catch (e) {
-        console.error('Database migration: failed to add state_override column to players', e);
+        console.error('Database migration: failed to add player state columns', e);
     }
 
     try {
@@ -782,9 +795,11 @@ try {
         if (invalidCodes.length > 0) {
             const deleteUsage = db.prepare('DELETE FROM giftcode_usage WHERE game_type = ? AND gift_code = ?');
             const deleteCode = db.prepare(`DELETE FROM gift_codes WHERE game_type = ? AND gift_code = ?`);
+            const deleteRetry = db.prepare('DELETE FROM state_search_retries WHERE game_type = ? AND gift_code = ?');
             const deleteInvalid = db.transaction((codes) => {
                 for (const { game_type, gift_code } of codes) {
                     deleteUsage.run(game_type, gift_code);
+                    deleteRetry.run(game_type, gift_code);
                     deleteCode.run(game_type, gift_code);
                 }
             });
@@ -1064,10 +1079,12 @@ const playerQueries = {
     `),
 
     // Update player alliance
-    updatePlayerAlliance: db.prepare('UPDATE players SET alliance_id = ?, state = ? WHERE game_type = ? AND fid = ?'),
+    updatePlayerAlliance: db.prepare('UPDATE players SET alliance_id = ?, state = ?, state_search_blocked_for = NULL WHERE game_type = ? AND fid = ?'),
 
     // Update player state override (NULL = follow alliance state)
-    updatePlayerStateOverride: db.prepare('UPDATE players SET state_override = ? WHERE game_type = ? AND fid = ?'),
+    updatePlayerStateOverride: db.prepare('UPDATE players SET state_override = ?, state_search_blocked_for = NULL WHERE game_type = ? AND fid = ?'),
+    blockStateSearch: db.prepare('UPDATE players SET state_search_blocked_for = ? WHERE game_type = ? AND fid = ?'),
+    clearAllianceStateSearchBlocks: db.prepare('UPDATE players SET state_search_blocked_for = NULL WHERE game_type = ? AND alliance_id = ?'),
 
     // Update player nickname
     updatePlayerNickname: db.prepare('UPDATE players SET nickname = ? WHERE game_type = ? AND fid = ?'),
@@ -1278,6 +1295,20 @@ const giftCodeUsageQueries = {
 
     // Delete all usage records for a gift code
     deleteUsageByGiftCode: db.prepare('DELETE FROM giftcode_usage WHERE game_type = ? AND gift_code = ?')
+};
+
+const stateSearchRetryQueries = {
+    add: db.prepare('INSERT OR IGNORE INTO state_search_retries (game_type, fid, gift_code) VALUES (?, ?, ?)'),
+    getActive: db.prepare(`
+        SELECT r.gift_code FROM state_search_retries r
+        JOIN gift_codes c ON c.game_type = r.game_type AND c.gift_code = r.gift_code AND c.status = 'active'
+        LEFT JOIN giftcode_usage u ON u.game_type = r.game_type AND u.fid = r.fid AND u.gift_code = r.gift_code
+        WHERE r.game_type = ? AND r.fid = ? AND u.id IS NULL
+        ORDER BY c.date DESC
+    `),
+    remove: db.prepare('DELETE FROM state_search_retries WHERE game_type = ? AND fid = ? AND gift_code = ?'),
+    removeCode: db.prepare('DELETE FROM state_search_retries WHERE game_type = ? AND gift_code = ?'),
+    removePlayer: db.prepare('DELETE FROM state_search_retries WHERE game_type = ? AND fid = ?')
 };
 
 // Notification queries
@@ -1716,6 +1747,7 @@ const migrationQueries = {
         // Clear all tables atomically in correct order to respect foreign key constraints
         db.transaction(() => {
             db.prepare('DELETE FROM giftcode_usage').run();
+            db.prepare('DELETE FROM state_search_retries').run();
             db.prepare('DELETE FROM furnace_changes').run();
             db.prepare('DELETE FROM nickname_changes').run();
             db.prepare('DELETE FROM id_channels').run();
@@ -1775,8 +1807,12 @@ module.exports = {
         getAlliancesByIds: (ids, gameType = getDefaultGameType()) => allianceQueries.getAlliancesByIds.all(resolveGameType(gameType), JSON.stringify(ids)),
         updateAlliance: (priority, name, guideId, channelId, interval, autoRedeem, id, gameType = getDefaultGameType()) =>
             allianceQueries.updateAlliance.run(priority, name, guideId, channelId, interval, autoRedeem, resolveGameType(gameType), id),
-        setAllianceState: (id, state, gameType = getDefaultGameType()) =>
-            allianceQueries.updateAllianceState.run(state, resolveGameType(gameType), id),
+        setAllianceState: (id, state, gameType = getDefaultGameType()) => db.transaction(() => {
+            const resolvedGameType = resolveGameType(gameType);
+            const result = allianceQueries.updateAllianceState.run(state, resolvedGameType, id);
+            playerQueries.clearAllianceStateSearchBlocks.run(resolvedGameType, id);
+            return result;
+        })(),
         updateAlliancePriority: (id, priority, gameType = getDefaultGameType()) => allianceQueries.updateAlliancePriority.run(priority, resolveGameType(gameType), id),
         deleteAlliance: (id, gameType = getDefaultGameType()) => allianceQueries.deleteAlliance.run(resolveGameType(gameType), id),
         getAllianceByPriority: (priority, gameType = getDefaultGameType()) => allianceQueries.getAllianceByPriority.get(resolveGameType(gameType), priority),
@@ -1832,6 +1868,7 @@ module.exports = {
         getDistinctStates: (allianceIds, gameType = getDefaultGameType()) => playerQueries.getDistinctStates.all(resolveGameType(gameType), JSON.stringify(allianceIds)).map(r => r.state),
         updatePlayerAlliance: (fid, allianceId, state, gameType = getDefaultGameType()) => playerQueries.updatePlayerAlliance.run(allianceId, state, resolveGameType(gameType), fid),
         updatePlayerStateOverride: (fid, stateOverride, gameType = getDefaultGameType()) => playerQueries.updatePlayerStateOverride.run(stateOverride, resolveGameType(gameType), fid),
+        blockStateSearch: (fid, state, gameType = getDefaultGameType()) => playerQueries.blockStateSearch.run(state, resolveGameType(gameType), fid),
         updatePlayerNickname: (fid, nickname, gameType = getDefaultGameType()) => playerQueries.updatePlayerNickname.run(nickname, resolveGameType(gameType), fid),
         searchPlayersByQuery: (query, allianceIds, gameType = getDefaultGameType()) => playerQueries.searchPlayersByQuery(query, allianceIds, resolveGameType(gameType)),
         deletePlayer: (fid, gameType = getDefaultGameType()) => {
@@ -1839,6 +1876,7 @@ module.exports = {
             playerQueries.deleteFurnaceChanges.run(resolvedGameType, fid);
             playerQueries.deleteNicknameChanges.run(resolvedGameType, fid);
             playerQueries.deleteGiftcodeUsage.run(resolvedGameType, fid);
+            stateSearchRetryQueries.removePlayer.run(resolvedGameType, fid);
             playerQueries.deletePlayer.run(resolvedGameType, fid);
         },
         getAllPlayers: (gameType = getDefaultGameType()) => playerQueries.getAllPlayers.all(resolveGameType(gameType)),
@@ -1912,6 +1950,7 @@ module.exports = {
             } catch (error) {
                 // Non-critical - continue with gift code deletion
             }
+            stateSearchRetryQueries.removeCode.run(resolveGameType(gameType), giftCode);
             return giftCodeQueries.removeGiftCode.run(resolveGameType(gameType), giftCode);
         },
         updateGiftCodeVipStatus: (isVip, giftCode, gameType = getDefaultGameType()) => {
@@ -1948,6 +1987,11 @@ module.exports = {
         getUsageCountsBatch: (giftCodes, gameType = getDefaultGameType()) =>
             giftCodeUsageQueries.getUsageCountsBatch(resolveGameType(gameType), giftCodes),
         deleteUsageByGiftCode: (giftCode, gameType = getDefaultGameType()) => giftCodeUsageQueries.deleteUsageByGiftCode.run(resolveGameType(gameType), giftCode)
+    },
+    stateSearchRetryQueries: {
+        add: (fid, giftCode, gameType = getDefaultGameType()) => stateSearchRetryQueries.add.run(resolveGameType(gameType), fid, giftCode),
+        getActive: (fid, gameType = getDefaultGameType()) => stateSearchRetryQueries.getActive.all(resolveGameType(gameType), fid),
+        remove: (fid, giftCode, gameType = getDefaultGameType()) => stateSearchRetryQueries.remove.run(resolveGameType(gameType), fid, giftCode)
     },
     notificationQueries: {
         ...notificationQueries,

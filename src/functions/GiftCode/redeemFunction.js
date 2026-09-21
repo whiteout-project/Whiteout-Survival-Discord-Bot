@@ -8,13 +8,14 @@ const {
 } = require('../Processes/createProcesses');
 const { queueManager } = require('../Processes/queueManager');
 const { processExecutor } = require('../Processes/executeProcesses');
-const { systemLogQueries, giftCodeQueries, playerQueries, giftCodeUsageQueries, settingsQueries, processQueries: processDbQueries, allianceQueries } = require('../utility/database');
+const { systemLogQueries, giftCodeQueries, playerQueries, giftCodeUsageQueries, stateSearchRetryQueries, settingsQueries, processQueries: processDbQueries, allianceQueries } = require('../utility/database');
 const { getTestPlayerForValidation } = require('./setTestId');
 const { API_CONFIG, getApiConfig } = require('../utility/apiConfig');
 const { getDefaultGameType } = require('../utility/gameRuntime');
 const { nativePost } = require('../utility/apiClient');
 const { isProxyConfiguredFor } = require('../utility/proxySupport');
 const { formatPlayerWithId } = require('../Players/playerDisplay');
+const { getPlayerStateInfo, queueStateSearch } = require('./stateSearch');
 
 const isDevMode = process.env.WOSLAND_DEV_MODE === '1';
 function devLog(...args) {
@@ -320,7 +321,8 @@ async function createRedeemProcess(redeemData, options = {}) {
         const {
             adminId: providedAdminId,
             allianceContext: providedAllianceContext,
-            gameType: providedGameType
+            gameType: providedGameType,
+            deferQueue = false
         } = options;
 
         const adminId = providedAdminId || 'SYSTEM_AUTO_REDEEM';
@@ -461,7 +463,7 @@ async function createRedeemProcess(redeemData, options = {}) {
         const shouldAwaitCompletion = normalisedItems.every((item) => item.status === 'validation');
         const completionPromise = shouldAwaitCompletion ? registerProcessCompletion(processId) : null;
 
-        await queueManager.manageQueue(processResult);
+        if (!deferQueue) await queueManager.manageQueue(processResult);
 
         if (completionPromise) {
             const completion = await completionPromise;
@@ -586,6 +588,7 @@ async function handlePostRedemption(playerId, giftCode, outcome, cachedGiftCodeD
             console.error(`Error tracking usage for player ${playerId}:`, usageError.message);
         }
     }
+    stateSearchRetryQueries.remove(playerId, giftCode, outcome.gameType || getDefaultGameType());
 }
 
 /**
@@ -826,12 +829,18 @@ async function executeRedeemOperation(processId) {
                 }
             }
 
-            // Process this redeem item (player state override wins over the alliance state)
-            const outcome = await processSingleRedeemItem(
-                item,
-                redeemContext.gameType,
-                item.effectiveState ?? redeemContext.alliance?.state
-            );
+            // Read the current state and block before each request, including resumed processes.
+            const stateInfo = item.status === 'redeem'
+                ? getPlayerStateInfo(item.id, redeemContext.gameType)
+                : null;
+            const effectiveState = stateInfo?.effectiveState ?? item.effectiveState ?? redeemContext.alliance?.state;
+            const outcome = stateInfo?.blocked
+                ? {
+                    success: false,
+                    status: 'SKIPPED_STATE_SEARCH_BLOCKED',
+                    message: 'Gift-code redemption is paused until this player\'s state is updated'
+                }
+                : await processSingleRedeemItem(item, redeemContext.gameType, effectiveState);
 
             // Rate-limited: put in retry queue and immediately process the next player
             // Rate limits don't increment cycle — they aren't the player's fault
@@ -956,8 +965,16 @@ async function executeRedeemOperation(processId) {
                 }
             }
 
+            if (item.status === 'redeem' && item.id && outcome.wrongState) {
+                try {
+                    await queueStateSearch(item.id, redeemContext.gameType, effectiveState, item.giftCode);
+                } catch (searchError) {
+                    await handleError(null, null, searchError, 'queueStateSearch', false);
+                }
+            }
+
             // Handle post-redemption operations (VIP tracking + usage tracking)
-            if (item.status === 'redeem' && item.id) {
+            if (item.status === 'redeem' && item.id && outcome.status !== 'SKIPPED_STATE_SEARCH_BLOCKED') {
                 await handlePostRedemption(item.id, item.giftCode, outcome, loopGiftCodeData);
             }
 
@@ -1483,6 +1500,10 @@ function computeRedeemStats(redeemContext, results, current) {
         .map((entry) => String(entry.playerId || entry.identifier || ''))
         .filter(Boolean))];
 
+    const stateSearchBlocked = processedResults.filter((entry) =>
+        entry.status === 'SKIPPED_STATE_SEARCH_BLOCKED'
+    ).length;
+
     const failed = processedResults.filter(isFailedEntry).length;
 
     // Break down failed players by status so embeds can explain WHY they failed.
@@ -1509,6 +1530,7 @@ function computeRedeemStats(redeemContext, results, current) {
         alreadyRedeemed,
         restricted,
         wrongStateIds,
+        stateSearchBlocked,
         failed,
         failedByStatus,
         percent
@@ -1635,6 +1657,10 @@ function buildRedeemProgressEmbed(stats, context) {
         { name: 'Failed', value: String(stats.failed), inline: true }
     ];
 
+    if (stats.stateSearchBlocked) {
+        fields.push({ name: 'Waiting for state update', value: String(stats.stateSearchBlocked), inline: true });
+    }
+
     if (stats.wrongStateIds?.length) {
         const ids = stats.wrongStateIds.join(', ');
         fields.push({
@@ -1646,7 +1672,9 @@ function buildRedeemProgressEmbed(stats, context) {
     if (stats.failed > 0) {
         const failureGroups = Object.entries(stats.failedByStatus || {})
             .map(([status, count]) => {
-                const label = status.startsWith('SKIPPED_')
+                const label = status === 'SKIPPED_STATE_SEARCH_BLOCKED'
+                    ? 'State search blocked'
+                    : status.startsWith('SKIPPED_')
                     ? 'Skipped'
                     : (FAILURE_STATUS_LABELS[status] || status);
                 return `${label}: ${count}`;
@@ -1758,5 +1786,6 @@ module.exports = {
     classifyGiftCodeValidationResult,
     getValidationFailureKind,
     computeRedeemStats,
-    handleVipTracking
+    handleVipTracking,
+    handlePostRedemption
 };

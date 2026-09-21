@@ -15,6 +15,7 @@ const {
 const { getUserInfo, handleError, assertUserMatches, updateComponentsV2AfterSeparator } = require('../utility/commonFunctions');
 const { getComponentEmoji, getEmojiMapForUser } = require('../utility/emojis');
 const { createUniversalPaginationButtons } = require('../Pagination/universalPagination');
+const { isGitMetadataPath } = require('./pluginGitMetadata');
 const {
     PLUGINS_DIR, loadedPlugins, validateManifest, registerPluginModules, getPluginPreserveConfig, getInstalledPluginManifests
 } = require('./pluginsLoader');
@@ -159,6 +160,7 @@ function copyDirRecursive(src, dest) {
     if (!fs.existsSync(dest)) fs.mkdirSync(dest, { recursive: true });
     const entries = fs.readdirSync(src, { withFileTypes: true });
     for (const entry of entries) {
+        if (isGitMetadataPath(entry.name)) continue;
         const srcPath = path.join(src, entry.name);
         const destPath = path.join(dest, entry.name);
         if (entry.isDirectory()) {
@@ -333,6 +335,8 @@ function resolveUpdatePreserveConfig(installedManifest = {}, downloadedManifest 
 function isProtectedPluginPath(relativePath, isDirectory, preserveConfig) {
     const normalizedPath = relativePath.replace(/\\/g, '/');
 
+    if (isGitMetadataPath(normalizedPath)) return true;
+
     for (const protectedDir of preserveConfig.dirs) {
         if (normalizedPath === protectedDir || normalizedPath.startsWith(`${protectedDir}/`)) {
             return true;
@@ -368,6 +372,11 @@ function copyUpdatedPluginFiles(srcDir, destDir, preserveConfig, baseDir = srcDi
         const srcPath = path.join(srcDir, entry.name);
         const destPath = path.join(destDir, entry.name);
         const relativePath = path.relative(baseDir, srcPath).replace(/\\/g, '/');
+
+        if (isGitMetadataPath(relativePath)) {
+            stats.skipped++;
+            continue;
+        }
 
         if (entry.isDirectory()) {
             if (isProtectedPluginPath(relativePath, true, preserveConfig) && fs.existsSync(destPath)) {
@@ -451,18 +460,6 @@ function removeStalePluginFiles(destDir, srcDir, preserveConfig, baseDir = destD
                 continue;
             }
 
-            if (!fs.existsSync(srcPath)) {
-                try {
-                    fs.rmSync(destPath, { recursive: true, force: true });
-                    console.log(`[PLUGINS] Removed stale directory: ${relativePath}`);
-                    stats.removed++;
-                } catch (error) {
-                    console.error(`[PLUGINS] Failed to remove stale directory ${relativePath}: ${error.message}`);
-                    stats.failed++;
-                }
-                continue;
-            }
-
             const subStats = removeStalePluginFiles(destPath, srcPath, preserveConfig, baseDir);
             stats.removed += subStats.removed;
             stats.skipped += subStats.skipped;
@@ -471,6 +468,7 @@ function removeStalePluginFiles(destDir, srcDir, preserveConfig, baseDir = destD
             try {
                 if (fs.existsSync(destPath) && fs.readdirSync(destPath).length === 0) {
                     fs.rmdirSync(destPath);
+                    stats.removed++;
                 }
             } catch { /* best-effort cleanup */ }
             continue;
@@ -833,6 +831,11 @@ async function installPlugin(pluginName, registrar, options = {}) {
             return { success: false, message: `Plugin "${pluginName}" is already installed.` };
         }
 
+        const destDir = path.join(PLUGINS_DIR, pluginName);
+        if (fs.existsSync(destDir)) {
+            return { success: false, message: `Plugin folder "${pluginName}" already exists. Update it or move it before installing.` };
+        }
+
         const registry = await fetchRegistry();
         if (!registry || !Array.isArray(registry.plugins)) {
             return { success: false, message: 'Could not fetch plugin registry.' };
@@ -849,9 +852,7 @@ async function installPlugin(pluginName, registrar, options = {}) {
         }
         const { zipPath, extractDir, pluginRoot } = await downloadAndExtractPluginArchive(pluginName, downloadUrl);
 
-        const destDir = path.join(PLUGINS_DIR, pluginName);
         if (!fs.existsSync(PLUGINS_DIR)) fs.mkdirSync(PLUGINS_DIR, { recursive: true });
-        if (fs.existsSync(destDir)) fs.rmSync(destDir, { recursive: true, force: true });
 
         copyDirRecursive(pluginRoot, destDir);
 
