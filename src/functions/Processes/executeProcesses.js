@@ -22,6 +22,7 @@ class ProcessExecutor {
      * @returns {Promise<boolean>} Execution success status
      */
     async executeProcess(processInfo) {
+        let execution = null;
         try {
             const { process_id, status, paused } = processInfo;
 
@@ -29,6 +30,10 @@ class ProcessExecutor {
             if (status !== 'active' || this.activeProcesses.has(process_id)) {
                 return false;
             }
+
+            // Claim synchronously so concurrent starts cannot both pass the guard.
+            execution = { startTime: Date.now() };
+            this.activeProcesses.set(process_id, execution);
 
             // Get full process data from SQLite
             const processData = await getProcessById(process_id);
@@ -46,9 +51,8 @@ class ProcessExecutor {
                 return false;
             }
 
-            // Mark as actively executing
-            this.activeProcesses.set(process_id, {
-                startTime: Date.now(),
+            // Record execution details after loading the process.
+            Object.assign(execution, {
                 action: processData.action,
                 priority: processData.priority,
                 gameType: resolveProcessGameType(processData)
@@ -57,9 +61,6 @@ class ProcessExecutor {
             try {
                 // Execute based on action type
                 await this.executeByAction(processData);
-
-                // Remove from active processes BEFORE completing (so queue manager can start next process)
-                this.activeProcesses.delete(process_id);
 
                 // Check if process was preempted during execution
                 // If preempted, it's already in 'queued' status - DON'T complete it
@@ -114,16 +115,10 @@ class ProcessExecutor {
                     await this.failProcess(process_id, error);
                     return false;
                 }
-            } finally {
-                // Safety cleanup (in case not already removed)
-                this.activeProcesses.delete(process_id);
             }
 
         } catch (error) {
             await handleError(null, null, error, 'executeProcess function', false);
-
-            // Clean up
-            this.activeProcesses.delete(processInfo.process_id);
 
             try {
                 await this.failProcess(processInfo.process_id, error);
@@ -132,6 +127,12 @@ class ProcessExecutor {
             }
 
             return false;
+        } finally {
+            // Keep ownership through all progress/status writes; only then allow a restart.
+            if (execution && this.activeProcesses.get(processInfo.process_id) === execution) {
+                this.activeProcesses.delete(processInfo.process_id);
+                await queueManager.startNextProcess();
+            }
         }
     }
 

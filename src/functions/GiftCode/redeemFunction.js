@@ -87,6 +87,7 @@ const MAX_FAILURE_GROUPS = 8;
 // API status code mapping for response analysis with error codes
 const API_STATUS_MAP = {
     'TIMEOUT RETRY': { success: false, giftCodeActive: true, retry: { type: 'rate', delay: API_CONFIG.RATE_LIMIT_DELAY }, errCode: 40004 },
+    'TOO FREQUENT': { success: false, giftCodeActive: null, retry: { type: 'rate', delay: API_CONFIG.RATE_LIMIT_DELAY } },
     'ROLE NOT EXIST': { success: false, giftCodeActive: true, playerNotExist: true, errCode: 40001 },
     'SUCCESS': { success: true, giftCodeActive: true },
     'RECEIVED': { success: true, giftCodeActive: true, errCode: 40008 },

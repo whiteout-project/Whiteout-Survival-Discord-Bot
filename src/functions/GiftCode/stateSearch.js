@@ -8,6 +8,8 @@ const MATCH_STATUSES = new Set([
     'STOVE_LV ERROR', 'RECHARGE_MONEY ERROR', 'RECHARGE_MONEY_VIP ERROR'
 ]);
 const UNUSABLE_CODE_STATUSES = new Set(['USED', 'TIME ERROR', 'CDK NOT FOUND']);
+const RATE_LIMIT_DELAY_MS = 60000;
+const MAX_RATE_LIMIT_BACKOFF_MS = 15 * 60000;
 
 function getPlayerStateInfo(fid, gameType) {
     const player = playerQueries.getPlayer(fid, gameType);
@@ -119,7 +121,6 @@ async function executeStateSearch(processId) {
     }
 
     const { makeGiftCodeAPIRequest, handlePostRedemption } = require('./redeemFunction');
-    let consecutiveRateLimits = 0;
     for (let index = progress.search?.nextIndex || 0; index < 400;) {
         const { processExecutor } = require('../Processes/executeProcesses');
         if ((await processExecutor.checkForPreemption(processId)).shouldStop) return { preempted: true };
@@ -129,6 +130,13 @@ async function executeStateSearch(processId) {
             await finish();
             await queueManager.startNextProcess();
             return;
+        }
+
+        // Persist cooldowns across restarts and check for preemption while waiting.
+        const cooldownRemaining = (progress.search.retryAt || 0) - Date.now();
+        if (cooldownRemaining > 0) {
+            await new Promise(resolve => setTimeout(resolve, Math.min(1000, cooldownRemaining)));
+            continue;
         }
 
         const candidate = candidateState(baseState, index);
@@ -146,11 +154,21 @@ async function executeStateSearch(processId) {
         const outcome = await makeGiftCodeAPIRequest(fid, probe.gift_code, 'redeem', { gameType, state: candidate });
         outcome.gameType = gameType;
         if (outcome.rateLimited) {
-            if (++consecutiveRateLimits > 5) throw new Error(`State search ${processId} remained rate limited`);
-            await new Promise(resolve => setTimeout(resolve, Math.max(1000, outcome.retryDelay || 60000)));
+            const attempts = (progress.search.rateLimitAttempts || 0) + 1;
+            const backoff = Math.min(RATE_LIMIT_DELAY_MS * 2 ** Math.min(attempts - 1, 4), MAX_RATE_LIMIT_BACKOFF_MS);
+            const retryDelay = Math.max(backoff, Number.isFinite(outcome.retryDelay) ? outcome.retryDelay : 0);
+            progress.search.rateLimitAttempts = attempts;
+            progress.search.retryAt = Date.now() + retryDelay;
+            await updateProcessProgress(processId, progress);
+            systemLogQueries.addLog('warn', `State search ${processId} paused for ${Math.ceil(retryDelay / 1000)}s after rate limiting`,
+                JSON.stringify({ processId, fid, gameType, state: candidate, retryAt: progress.search.retryAt, attempts }));
             continue;
         }
-        consecutiveRateLimits = 0;
+        if (progress.search.rateLimitAttempts) {
+            delete progress.search.rateLimitAttempts;
+            delete progress.search.retryAt;
+            await updateProcessProgress(processId, progress);
+        }
         if (outcome.wrongState || outcome.status === 'USER INFO ERROR') {
             index++;
             progress.search.nextIndex = index;

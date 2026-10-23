@@ -99,7 +99,7 @@ Manages process execution queue with priority-based scheduling and preemption.
 - **Priority Queuing**: Lower numbers = higher priority
 - **Preemption**: Higher priority processes can pause lower priority ones
 - **Auto-Start**: Automatically starts next process when current completes
-- **Preemption Recovery**: Returns interrupted work to the queue
+- **Preemption Recovery**: Returns interrupted work to the queue; it resumes only after the previous execution has finished saving progress and stopped
 
 #### Queue Operations
 
@@ -332,6 +332,8 @@ const PROCESS_PRIORITIES = {
 ```
 
 ### Rate Limiting
+
+Player state searches retry `TOO FREQUENT`, `TIMEOUT RETRY`, and HTTP 429 responses without failing the search or blocking the player. Repeated limits increase the cooldown from one minute to a maximum of fifteen minutes; a longer API retry delay is respected. The current candidate and cooldown survive restarts, and higher-priority work can interrupt the wait.
 
 ```javascript
 const API_CONFIG = {

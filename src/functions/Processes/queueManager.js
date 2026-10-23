@@ -39,13 +39,15 @@ class QueueManager {
     }
 
     async startProcess(process, paused = null) {
+        const executor = getProcessExecutor();
+        if (executor.activeProcesses.has(process.id)) return false;
+
         await updateProcessStatus(process.id, PROCESS_STATUS.ACTIVE);
 
         if (process.preempted_by) {
             await clearProcessPreemption(process.id);
         }
 
-        const executor = getProcessExecutor();
         const executionPayload = {
             process_id: process.id,
             status: 'active',
@@ -56,6 +58,7 @@ class QueueManager {
             systemLogQueries.addLog('error', `Unhandled execution error for process ${process.id}`,
                 JSON.stringify({ process_id: process.id, error: error.message, function: 'startProcess' }));
         });
+        return true;
     }
 
     /**
@@ -114,13 +117,10 @@ class QueueManager {
             if (priority < highestPriorityActive) {
                 // This process has higher priority, preempt the same-game active ones.
                 const preemptedProcesses = [];
-                const executor = getProcessExecutor();
-
                 // Pause same-game active processes with lower priority.
                 for (const activeProcess of sameGameActive) {
                     if (activeProcess.priority > priority) {
                         await setProcessPreemption(activeProcess.id, process_id);
-                        executor.activeProcesses.delete(activeProcess.id);
                         preemptedProcesses.push(activeProcess.id);
                     }
                 }
@@ -232,6 +232,12 @@ class QueueManager {
 
                 const gameType = resolveProcessGameType(queuedProcess);
                 if (occupiedGames.has(gameType)) {
+                    continue;
+                }
+
+                // A paused execution must finish saving progress before it can restart.
+                if (getProcessExecutor().activeProcesses.has(queuedProcess.id)) {
+                    occupiedGames.add(gameType);
                     continue;
                 }
 
