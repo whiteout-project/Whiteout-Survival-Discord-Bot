@@ -24,6 +24,7 @@ const pluginsMain = require('../functions/Plugin/plugins');
 const pluginInstall = require('../functions/Plugin/pluginInstall');
 const pluginDelete = require('../functions/Plugin/pluginDelete');
 const pluginAccess = require('../functions/Plugin/pluginAccess');
+const pluginUpload = require('../functions/Plugin/pluginUpload');
 const panel = require('../functions/Panel/backToPanel');
 const alliance = require('../functions/Alliance/Alliance');
 const players = require('../functions/Players/players');
@@ -99,6 +100,9 @@ const buttonHandlers = [
     { pattern: /^auto_update_check_/, fn: autoUpdate.handleAutoUpdateCheck },
     { pattern: /^auto_update_apply_/, fn: autoUpdate.handleAutoUpdateApply },
     { pattern: /^auto_update_page_/, fn: autoUpdate.handleAutoUpdatePage },
+    { pattern: /^plugins_upload_start_/, fn: pluginUpload.handlePluginUpload },
+    { pattern: /^plugins_upload_confirm_/, fn: pluginUpload.handlePluginUploadConfirm },
+    { pattern: /^plugins_upload_cancel_/, fn: pluginUpload.handlePluginUploadCancel },
     { pattern: /^plugins_install_(prev|next)_/, fn: pluginInstall.handlePluginsInstallPagination },
     { pattern: /^plugins_install_menu_/, fn: pluginInstall.handlePluginsInstallMenu },
     { pattern: /^plugins_install_/, fn: pluginInstall.handlePluginInstall },
@@ -106,6 +110,7 @@ const buttonHandlers = [
     { pattern: /^plugins_delete_menu_/, fn: pluginDelete.handlePluginsDeleteMenu },
     { pattern: /^plugins_remove_/, fn: pluginDelete.handlePluginRemove },
     { pattern: /^plugins_access_menu_/, fn: pluginAccess.handlePluginsAccessMenu },
+    { pattern: /^plugins_access_(prev|next)_/, fn: pluginAccess.handlePluginsAccessMenu },
     { pattern: /^plugins_menu_/, fn: pluginsMain.handlePluginsMenu },
     { pattern: /^change_language_/, fn: language.handleChangeLanguageButton },
     { pattern: /^back_to_panel_/, fn: panel.handleBackToPanelButton },
@@ -361,6 +366,7 @@ function setupButtonHandlers(client) {
         for (const { pattern, fn } of buttonDispatcher.getCandidates(interaction.customId)) {
             if (pattern.test(interaction.customId)) {
                 try {
+                    pluginUpload.dismissPluginUploadOnNavigation(interaction);
                     await fn(interaction);
                 } catch (error) {
                     console.error(`[ButtonHandler] Error handling button ${interaction.customId}:`, error);

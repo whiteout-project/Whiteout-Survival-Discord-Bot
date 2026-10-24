@@ -490,7 +490,7 @@ The bot owner always has access regardless of settings.
 3. Extracted to `plugins/{name}/`
 4. `npm install` runs if `package.json` exists
 5. Commands, events, and handlers are registered live
-6. Slash commands are re-registered with Discord
+6. The bot restarts to register the new slash commands with Discord
 
 ### Unload / Remove
 
@@ -522,7 +522,35 @@ plugins/
 
 Restart the bot or use `reload files` to load it.
 
+### Discord Upload (Third-Party Plugins)
+
+The plugin manager keeps its main menu above a separator and the current function section. Installing, removing, viewing installed plugins, and their pagination replace only the lower section. The bot owner can choose **Upload Plugin**, attach a ZIP, and review a private view with the same layout before choosing **Trust Author and Install**. Upload progress, the preview, and the result appear below the Plugins menu. The preview includes the plugin metadata, declared compatibility, local validation results, suspicious patterns with file locations, and an attached report with every finding. No plugin code, dependency installers, or package scripts run during inspection.
+
+Use the structure described above: `plugin.json` at the ZIP root, or inside one folder whose name matches the manifest's `name`, with at least one CommonJS `.js` module directly inside `commands/`, `events/`, or `handlers/`. Uploaded plugin versions must be valid semantic versions. A standalone `main` entrypoint is unsupported. Optional compatibility requirements use semantic version ranges:
+
+```json
+"engines": { "bot": ">=1.0.51 <2", "node": ">=22" }
+```
+
+If compatibility is not declared, the preview says it is unverified. Incompatible declared requirements block installation. Required packages must already exist in the bot's dependencies at compatible versions; uploads never run npm or package installation scripts. Handler registration must be synchronous and should return its cleanup function.
+
+Limits are 10 MiB per ZIP, 500 files and folders including implied parent directories, 40 MiB after extraction, 4 MiB per file, and a maximum 100:1 compression ratio. The central directory is parsed directly so signatures in ZIP comments cannot select different archive metadata. Archives containing unsafe paths, links, duplicate paths, bundled `node_modules`, Git metadata, environment files, databases, native binaries, or shell scripts are rejected or blocked. Existing plugin IDs and folders are never replaced, including their configuration, data, and Git metadata.
+
+Inspection runs in a separate local worker with a bounded JavaScript heap and a ten-second timeout. Inspections are serialized to bound peak memory. The worker only parses, checks and stages the archive; it never executes uploaded JavaScript. A timed-out or failed worker is stopped before its staging files are cleaned up.
+
+Confirmations are bound to the initiating owner, channel, completed preview message, and inspected archive and expire five minutes after the upload form opens. Cancellation or navigation away from the upload view invalidates the session even if staging-file deletion fails. Expired staging folders left by a restart are cleaned up when the upload handler loads. Confirmation rechecks the staged files before installing, rechecks owner permission after acknowledging the interaction, and uses the shared update lock. Expiry or navigation during worker inspection cannot publish a stale preview or leave its returned files active.
+
+A failed new installation unregisters its components and removes its new directory. Promise-returning handler initialization is rejected, and cleanup errors do not stop the remaining rollback steps. Existing slash-command names are checked at the actual registration write. An interrupted installation or one whose files cannot be removed keeps a pending marker and stays disabled on startup. If the directory or marker cannot be verified, the result explicitly requires manual inspection before restarting; an unknown replacement directory is never deleted. A failed Discord success-message edit falls back to a private result and does not repeat installation.
+
+Successful uploads hot-load through the normal plugin lifecycle. New slash commands need a bot restart, which is explained both before confirmation and after loading. Uploaded plugins are labeled **third-party** in the installed-plugin list and are excluded from official catalog updates.
+
+Third-party plugins execute with the bot's permissions, including access to its files, credentials, and network. Install only code from an author you trust. Static checks are a risk assessment, not a safety guarantee, and suspicious patterns may have legitimate uses. This flow is not a sandbox and cannot undo arbitrary effects of plugin code after execution has been confirmed.
+
+Focused local verification uses `node --test tests/plugin-archive.test.cjs tests/plugin-upload.test.cjs tests/plugin-git-metadata.test.js`, with synthetic archives and disposable plugin directories. Interaction tests exercise the real button/modal routers and the owning lifecycle registrars without connecting to Discord or opening the bot database.
+
 ### Official Registry
+
+The official catalog contains only plugins published through WOSLand's registry. Uploading a ZIP does not add it to that catalog or imply WOSLand review or endorsement.
 
 To distribute via the bot's 1-click install system:
 

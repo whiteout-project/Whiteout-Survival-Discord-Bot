@@ -18,6 +18,7 @@ const emojisCreate = require('../functions/Settings/theme/emojisCreate');
 const emojisEditor = require('../functions/Settings/theme/emojisEditor');
 const emojisUpload = require('../functions/Settings/theme/emojisImport');
 const dbMigration = require('../functions/Settings/migration');
+const pluginUpload = require('../functions/Plugin/pluginUpload');
 const backUpCreate = require('../functions/Settings/backup/backupCreate');
 const buildings = require('../functions/Calculators/Buildings/buildings');
 const warAcademy = require('../functions/Calculators/WarAcademy/warAcademy');
@@ -25,6 +26,7 @@ const { createInteractionDispatcher } = require('../functions/utility/interactio
 
 // === HANDLER REGISTRY ===
 const formHandlers = [
+    { pattern: /^plugins_upload_file_/, fn: pluginUpload.handlePluginUploadFile },
     // Alliance modals
     { pattern: /^create_alliance_modal_/, fn: createAlliance.handleCreateAllianceModal },
     { pattern: /^edit_alliance_modal_/, fn: editAlliance.handleEditAllianceModal },

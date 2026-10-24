@@ -4,11 +4,13 @@ const {
     TextDisplayBuilder,
     SeparatorBuilder,
     SeparatorSpacingSize,
-    ActionRowBuilder
+    ActionRowBuilder,
+    escapeMarkdown
 } = require('discord.js');
 const { getUserInfo, handleError, assertUserMatches } = require('../utility/commonFunctions');
-const { createBackToPluginsButton } = require('./plugins');
+const { createBackToPluginsButton, createPluginsComponents } = require('./plugins');
 const { loadedPlugins } = require('./pluginsLoader');
+const { createUniversalPaginationButtons } = require('../Pagination/universalPagination');
 
 /**
  * Gets the slash command names registered by a plugin
@@ -49,27 +51,31 @@ async function handlePluginsAccessMenu(interaction) {
 
         const pluginLang = lang.plugins;
         const userId = interaction.user.id;
+        const parts = interaction.customId.split('_');
+        const requestedPage = Number(parts[4]) + (parts[2] === 'next' ? 1 : -1);
+        const totalPages = Math.max(1, Math.ceil(loadedPlugins.size / 5));
+        const currentPage = Number.isFinite(requestedPage) ? Math.max(0, Math.min(totalPages - 1, requestedPage)) : 0;
 
         const container = new ContainerBuilder()
             .setAccentColor(0x3498db);
+        const components = createPluginsComponents(interaction, lang, [container]);
+        const mainLength = components[0].toJSON().components.reduce((length, component) => length + (component.content?.length || 0), 0);
 
         if (loadedPlugins.size === 0) {
             container.addTextDisplayComponents(
                 new TextDisplayBuilder().setContent(pluginLang.content.noInstalled || 'No plugins installed.')
             );
         } else {
-            container.addTextDisplayComponents(
-                new TextDisplayBuilder().setContent(
-                    `**${(pluginLang.content.installed || 'Installed Plugins')
-                        .replace('{count}', String(loadedPlugins.size))}**`
-                )
-            );
+            const heading = `**${(pluginLang.content.installed || 'Installed Plugins')
+                .replace('{count}', String(loadedPlugins.size))}**`;
+            container.addTextDisplayComponents(new TextDisplayBuilder().setContent(heading));
 
             container.addSeparatorComponents(
                 new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true)
             );
 
-            const plugins = Array.from(loadedPlugins.values());
+            const plugins = Array.from(loadedPlugins.values()).slice(currentPage * 5, (currentPage + 1) * 5);
+            const itemLimit = Math.floor((4000 - mainLength - heading.length) / plugins.length);
             plugins.forEach((plugin, index) => {
                 const commandNames = getPluginCommandNames(plugin);
                 const commandMentions = commandNames.map(name => {
@@ -77,16 +83,22 @@ async function handlePluginsAccessMenu(interaction) {
                     return commandId ? `</${name}:${commandId}>` : `\`/${name}\``;
                 });
 
-                let content = `- **${plugin.name}**\n` +
-                    `  - ${plugin.description || '—'}\n` +
-                    `  - \`v${plugin.version}\``;
+                let content = `- **${escapeMarkdown(String(plugin.name).slice(0, 64))}**\n` +
+                    `  - \`v${escapeMarkdown(String(plugin.version).slice(0, 64))}\``;
+                if (plugin.thirdParty) content += `\n  - ${pluginLang.upload.thirdParty}`;
+                content += `\n  - ${escapeMarkdown(String(plugin.description || '—').slice(0, 220))}`;
 
-                if (commandMentions.length > 0) {
-                    content += `\n  - ${commandMentions.join(', ')}`;
+                const visibleCommands = [];
+                let remaining = Math.min(300, itemLimit - content.length - 5);
+                for (const mention of commandMentions) {
+                    if (mention.length > remaining) break;
+                    visibleCommands.push(mention);
+                    remaining -= mention.length + 2;
                 }
+                if (visibleCommands.length) content += `\n  - ${visibleCommands.join(', ')}`;
 
                 container.addTextDisplayComponents(
-                    new TextDisplayBuilder().setContent(content)
+                    new TextDisplayBuilder().setContent(content.slice(0, itemLimit))
                 );
 
                 if (index < plugins.length - 1) {
@@ -106,10 +118,14 @@ async function handlePluginsAccessMenu(interaction) {
                 createBackToPluginsButton(userId, pluginLang)
             )
         );
+        const pagination = createUniversalPaginationButtons({ feature: 'plugins_access', userId, currentPage, totalPages, lang });
+        if (pagination) container.addActionRowComponents(pagination);
 
         await interaction.update({
-            components: [container],
-            flags: MessageFlags.IsComponentsV2
+            components,
+            attachments: [],
+            flags: MessageFlags.IsComponentsV2,
+            allowedMentions: { parse: [] }
         });
 
     } catch (error) {

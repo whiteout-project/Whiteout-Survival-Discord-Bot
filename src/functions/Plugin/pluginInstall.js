@@ -12,7 +12,8 @@ const {
     SeparatorBuilder,
     SeparatorSpacingSize
 } = require('discord.js');
-const { getUserInfo, handleError, assertUserMatches, updateComponentsV2AfterSeparator } = require('../utility/commonFunctions');
+const { getUserInfo, handleError, assertUserMatches } = require('../utility/commonFunctions');
+const { createPluginsComponents } = require('./plugins');
 const { getComponentEmoji, getEmojiMapForUser } = require('../utility/emojis');
 const { createUniversalPaginationButtons } = require('../Pagination/universalPagination');
 const { isGitMetadataPath } = require('./pluginGitMetadata');
@@ -638,10 +639,11 @@ async function handlePluginsInstallMenu(interaction, page = 0) {
             userId, pluginLang, lang, available, registryError, page
         });
 
-        const components = updateComponentsV2AfterSeparator(interaction, sectionComponents);
+        const components = createPluginsComponents(interaction, lang, sectionComponents);
 
         await interaction.editReply({
             components,
+            attachments: [],
             flags: MessageFlags.IsComponentsV2
         });
 
@@ -695,10 +697,11 @@ async function handlePluginsInstallPagination(interaction) {
             userId, pluginLang, lang, available, registryError, page: newPage
         });
 
-        const components = updateComponentsV2AfterSeparator(interaction, sectionComponents);
+        const components = createPluginsComponents(interaction, lang, sectionComponents);
 
         await interaction.editReply({
             components,
+            attachments: [],
             flags: MessageFlags.IsComponentsV2
         });
 
@@ -713,6 +716,8 @@ async function handlePluginsInstallPagination(interaction) {
  */
 async function handlePluginInstall(interaction) {
     const { adminData, lang } = getUserInfo(interaction.user.id);
+    let updateLock;
+    let keepLock = false;
     try {
         // customId: plugins_install_{pluginName}_{userId}
         const parts = interaction.customId.split('_');
@@ -730,7 +735,7 @@ async function handlePluginInstall(interaction) {
 
         const pluginLang = lang.plugins;
         const userId = interaction.user.id;
-        const updateLock = acquireUpdateLock(`plugin install: ${pluginName}`);
+        updateLock = acquireUpdateLock(`plugin install: ${pluginName}`);
         if (!updateLock.acquired) {
             return await interaction.reply({
                 content: formatActiveUpdateMessage(updateLock.active),
@@ -738,7 +743,6 @@ async function handlePluginInstall(interaction) {
             });
         }
 
-        let keepLock = false;
         await interaction.deferUpdate();
 
         // Show installing status as section
@@ -750,9 +754,10 @@ async function handlePluginInstall(interaction) {
                 )
             );
 
-        const loadingComponents = updateComponentsV2AfterSeparator(interaction, [installingContainer]);
+        const loadingComponents = createPluginsComponents(interaction, lang, [installingContainer]);
         await interaction.editReply({
             components: loadingComponents,
+            attachments: [],
             flags: MessageFlags.IsComponentsV2
         });
 
@@ -772,13 +777,9 @@ async function handlePluginInstall(interaction) {
                 new TextDisplayBuilder().setContent(resultText)
             );
 
-        // Use the same structure: main container + separator + result
-        const currentComponents = interaction.message.components;
-        const mainContainer = currentComponents[0];
-        const separator = new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true);
-
         await interaction.editReply({
-            components: [mainContainer, separator, resultContainer],
+            components: createPluginsComponents(interaction, lang, [resultContainer]),
+            attachments: [],
             flags: MessageFlags.IsComponentsV2
         });
 
@@ -790,7 +791,7 @@ async function handlePluginInstall(interaction) {
     } catch (error) {
         await handleError(interaction, lang, error, 'handlePluginInstall');
     } finally {
-        if (typeof keepLock !== 'undefined' && !keepLock && typeof updateLock?.token !== 'undefined') {
+        if (!keepLock && updateLock?.token) {
             releaseUpdateLock(updateLock.token);
         }
     }
@@ -885,7 +886,7 @@ async function installPlugin(pluginName, registrar, options = {}) {
  * @returns {Promise<{ updates: { name: string, current: string, latest: string }[], error?: string }>}
  */
 async function checkPluginUpdates() {
-    const installedPlugins = getInstalledPluginManifests();
+    const installedPlugins = getInstalledPluginManifests().filter(plugin => !plugin.thirdParty);
     const proxyPayload = await requestPluginUpdatesViaProxy(installedPlugins);
     if (proxyPayload?.updates) {
         return { updates: proxyPayload.updates };
@@ -916,6 +917,10 @@ async function updatePlugin(pluginName, registrar) {
 
         if (!fs.existsSync(pluginDir)) {
             return { success: false, message: `Plugin "${pluginName}" is not installed.` };
+        }
+
+        if (fs.existsSync(path.join(pluginDir, '.wosland-upload.json'))) {
+            return { success: false, message: 'Uploaded third-party plugins cannot be updated from the official catalog.' };
         }
 
         const registry = await fetchRegistry();

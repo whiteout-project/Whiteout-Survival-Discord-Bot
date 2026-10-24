@@ -61,6 +61,10 @@ function registerHandler(filePath) {
     }
 
     const cleanup = handler(client);
+    if (cleanup && typeof cleanup.then === 'function') {
+        Promise.resolve(cleanup).catch(() => {});
+        throw new Error(`Handler at ${filePath} must initialize synchronously.`);
+    }
     loadedHandlers.set(filePath, {
         cleanup: typeof cleanup === 'function' ? cleanup : null
     });
@@ -72,7 +76,9 @@ function unregisterHandler(filePath) {
 
     if (typeof entry.cleanup === 'function') {
         try {
-            entry.cleanup();
+            Promise.resolve(entry.cleanup()).catch(error => {
+                console.warn(`Handler cleanup rejected at ${filePath}: ${error?.name || 'Error'}`);
+            });
         } catch (error) {
             console.error(`Error during cleanup of handler at ${filePath}:`, error);
         }
@@ -88,6 +94,11 @@ function registerCommand(filePath) {
     }
 
     const commandName = command.data.name;
+    if (client.commands.has(commandName)) {
+        const error = new Error(`Command "${commandName}" is already registered.`);
+        error.code = 'PLUGIN_COMMAND_CONFLICT';
+        throw error;
+    }
     client.commands.set(commandName, command);
     loadedCommands.set(filePath, { name: commandName });
 }
@@ -160,23 +171,24 @@ function loadPluginsAndManager() {
     const pluginsLoader = require('./functions/Plugin/pluginsLoader');
     const pluginInstallModule = require('./functions/Plugin/pluginInstall');
     const pluginDeleteModule = require('./functions/Plugin/pluginDelete');
-    const pluginResults = pluginsLoader.loadPlugins({ registerCommand, registerEvent, registerHandler });
+    const pluginRegistrar = {
+        registerCommand, unregisterCommand,
+        registerEvent, unregisterEvent,
+        registerHandler, unregisterHandler
+    };
+    const pluginResults = pluginsLoader.loadPlugins(pluginRegistrar);
     if (pluginResults.failed.length > 0) {
         for (const fail of pluginResults.failed) {
             console.error(`[PLUGINS] ${fail.name}: ${fail.error}`);
         }
     }
 
-    const pluginRegistrar = {
-        registerCommand, unregisterCommand,
-        registerEvent, unregisterEvent,
-        registerHandler, unregisterHandler
-    };
     global.pluginManager = {
         fetchRegistry: () => pluginInstallModule.fetchRegistry(),
         getInstalled: () => pluginsLoader.getInstalledPlugins(),
         getCount: () => pluginsLoader.getPluginCount(),
         install: (name) => pluginInstallModule.installPlugin(name, pluginRegistrar),
+        installUploaded: (inspection) => require('./functions/Plugin/pluginArchive').installUploadedPlugin(inspection, pluginRegistrar, client),
         remove: (name) => pluginDeleteModule.removePlugin(name, pluginRegistrar),
         checkUpdates: () => pluginInstallModule.checkPluginUpdates(),
         update: (name) => pluginInstallModule.updatePlugin(name, pluginRegistrar)

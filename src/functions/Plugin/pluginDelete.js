@@ -8,18 +8,19 @@ const {
     TextDisplayBuilder,
     SectionBuilder,
     SeparatorBuilder,
-    SeparatorSpacingSize
+    SeparatorSpacingSize,
+    escapeMarkdown
 } = require('discord.js');
-const { getUserInfo, handleError, assertUserMatches, updateComponentsV2AfterSeparator } = require('../utility/commonFunctions');
+const { getUserInfo, handleError, assertUserMatches } = require('../utility/commonFunctions');
+const { createPluginsComponents } = require('./plugins');
 const { getComponentEmoji, getEmojiMapForUser } = require('../utility/emojis');
 const { createUniversalPaginationButtons } = require('../Pagination/universalPagination');
-const { PLUGINS_DIR, loadedPlugins } = require('./pluginsLoader');
+const { PLUGINS_DIR, unloadPlugin } = require('./pluginsLoader');
 const {
     acquireUpdateLock,
     releaseUpdateLock,
     formatActiveUpdateMessage
 } = require('../Settings/updateCoordinator');
-const i18n = require('../../i18n');
 
 const ITEMS_PER_PAGE = 5;
 
@@ -66,7 +67,8 @@ function buildDeleteSection({ userId, pluginLang, lang, installed, page }) {
                 .setButtonAccessory(removeButton)
                 .addTextDisplayComponents(
                     new TextDisplayBuilder().setContent(
-                        `**${plugin.name}** \`v${plugin.version || '?'}\`\n${plugin.description || '—'}`
+                        `**${escapeMarkdown(String(plugin.name).slice(0, 64))}** \`v${escapeMarkdown(String(plugin.version || '?').slice(0, 64))}\`\n${escapeMarkdown(String(plugin.description || '—').slice(0, 220))}` +
+                        (plugin.thirdParty ? `\n${pluginLang.upload.thirdParty}` : '')
                     )
                 );
 
@@ -129,11 +131,13 @@ async function handlePluginsDeleteMenu(interaction, page = 0) {
             userId, pluginLang, lang, installed, page
         });
 
-        const components = updateComponentsV2AfterSeparator(interaction, sectionComponents);
+        const components = createPluginsComponents(interaction, lang, sectionComponents);
 
         await interaction.update({
             components,
-            flags: MessageFlags.IsComponentsV2
+            attachments: [],
+            flags: MessageFlags.IsComponentsV2,
+            allowedMentions: { parse: [] }
         });
 
     } catch (error) {
@@ -176,11 +180,13 @@ async function handlePluginsDeletePagination(interaction) {
             userId, pluginLang, lang, installed, page: newPage
         });
 
-        const components = updateComponentsV2AfterSeparator(interaction, sectionComponents);
+        const components = createPluginsComponents(interaction, lang, sectionComponents);
 
         await interaction.update({
             components,
-            flags: MessageFlags.IsComponentsV2
+            attachments: [],
+            flags: MessageFlags.IsComponentsV2,
+            allowedMentions: { parse: [] }
         });
 
     } catch (error) {
@@ -194,6 +200,8 @@ async function handlePluginsDeletePagination(interaction) {
  */
 async function handlePluginRemove(interaction) {
     const { adminData, lang } = getUserInfo(interaction.user.id);
+    let updateLock;
+    let keepLock = false;
     try {
         // customId: plugins_remove_{pluginName}_{userId}
         const parts = interaction.customId.split('_');
@@ -211,7 +219,7 @@ async function handlePluginRemove(interaction) {
 
         const pluginLang = lang.plugins;
         const userId = interaction.user.id;
-        const updateLock = acquireUpdateLock(`plugin remove: ${pluginName}`);
+        updateLock = acquireUpdateLock(`plugin remove: ${pluginName}`);
         if (!updateLock.acquired) {
             return await interaction.reply({
                 content: formatActiveUpdateMessage(updateLock.active),
@@ -219,7 +227,6 @@ async function handlePluginRemove(interaction) {
             });
         }
 
-        let keepLock = false;
         await interaction.deferUpdate();
 
         // Remove the plugin
@@ -238,12 +245,9 @@ async function handlePluginRemove(interaction) {
                 new TextDisplayBuilder().setContent(resultText)
             );
 
-        const currentComponents = interaction.message.components;
-        const mainContainer = currentComponents[0];
-        const separator = new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true);
-
         await interaction.editReply({
-            components: [mainContainer, separator, resultContainer],
+            components: createPluginsComponents(interaction, lang, [resultContainer]),
+            attachments: [],
             flags: MessageFlags.IsComponentsV2
         });
 
@@ -255,7 +259,7 @@ async function handlePluginRemove(interaction) {
     } catch (error) {
         await handleError(interaction, lang, error, 'handlePluginRemove');
     } finally {
-        if (typeof keepLock !== 'undefined' && !keepLock && typeof updateLock?.token !== 'undefined') {
+        if (!keepLock && updateLock?.token) {
             releaseUpdateLock(updateLock.token);
         }
     }
@@ -271,57 +275,6 @@ async function handlePluginRemove(interaction) {
  * @param {Object} registrar - Object with unregister functions
  * @returns {boolean} True if plugin was found and unloaded
  */
-function unloadPlugin(pluginName, registrar) {
-    const pluginData = loadedPlugins.get(pluginName);
-    if (!pluginData) return false;
-
-    for (const filePath of pluginData.commands) {
-        try {
-            registrar.unregisterCommand(filePath);
-            delete require.cache[require.resolve(filePath)];
-        } catch (error) {
-            console.warn(`[PLUGINS] Failed to unregister command ${filePath}:`, error.message);
-        }
-    }
-
-    for (const filePath of pluginData.events) {
-        try {
-            registrar.unregisterEvent(filePath);
-            delete require.cache[require.resolve(filePath)];
-        } catch (error) {
-            console.warn(`[PLUGINS] Failed to unregister event ${filePath}:`, error.message);
-        }
-    }
-
-    for (const filePath of pluginData.handlers) {
-        try {
-            registrar.unregisterHandler(filePath);
-            delete require.cache[require.resolve(filePath)];
-        } catch (error) {
-            console.warn(`[PLUGINS] Failed to unregister handler ${filePath}:`, error.message);
-        }
-    }
-
-    i18n.removePluginLocales(pluginName);
-
-    // Close and evict ALL remaining cached modules under this plugin's directory.
-    const pluginDir = path.resolve(PLUGINS_DIR, pluginName);
-    const pluginDirPrefix = pluginDir.toLowerCase().replace(/\\/g, '/');
-    for (const [modulePath, cachedModule] of Object.entries(require.cache)) {
-        const normalizedPath = modulePath.toLowerCase().replace(/\\/g, '/');
-        if (normalizedPath.startsWith(pluginDirPrefix + '/') || normalizedPath === pluginDirPrefix) {
-            if (cachedModule?.exports && typeof cachedModule.exports.close === 'function') {
-                try { cachedModule.exports.close(); } catch { /* best-effort */ }
-            }
-            delete require.cache[modulePath];
-        }
-    }
-
-    loadedPlugins.delete(pluginName);
-    console.log(`[PLUGINS] Unloaded: ${pluginName}`);
-    return true;
-}
-
 /**
  * Removes a plugin by name — unloads and deletes its files
  * @param {string} pluginName - Name of the plugin

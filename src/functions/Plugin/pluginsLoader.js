@@ -23,6 +23,9 @@ const loadedPlugins = new Map();
  * @returns {{ valid: boolean, error?: string }}
  */
 function validateManifest(manifest, pluginDir) {
+    if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) {
+        return { valid: false, error: 'Plugin manifest must be an object' };
+    }
     if (!manifest.name || typeof manifest.name !== 'string') {
         return { valid: false, error: `Plugin at ${pluginDir} missing required "name" field` };
     }
@@ -96,7 +99,9 @@ function buildPluginData(pluginDir, manifest) {
         version: manifest.version,
         description: manifest.description || '',
         author: manifest.author || 'Unknown',
+        thirdParty: fs.existsSync(path.join(pluginDir, '.wosland-upload.json')),
         dir: pluginDir,
+        cacheRoot: fs.realpathSync(pluginDir),
         commands: scanModuleDir('commands'),
         events: scanModuleDir('events'),
         handlers: scanModuleDir('handlers')
@@ -117,24 +122,53 @@ function buildPluginData(pluginDir, manifest) {
  */
 function registerPluginModules(pluginDir, manifest, registrar) {
     const pluginData = buildPluginData(pluginDir, manifest);
-
-    for (const filePath of pluginData.commands) {
-        registrar.registerCommand(filePath);
-    }
-    for (const filePath of pluginData.events) {
-        registrar.registerEvent(filePath);
-    }
-    for (const filePath of pluginData.handlers) {
-        registrar.registerHandler(filePath);
-    }
-
-    const localesDir = path.join(pluginDir, 'locales');
-    if (fs.existsSync(localesDir)) {
-        i18n.mergePluginLocales(manifest.name, localesDir);
-    }
-
+    if (loadedPlugins.has(manifest.name)) throw new Error(`Plugin "${manifest.name}" is already loaded`);
+    // Publish rollback metadata before the first module can register anything.
     loadedPlugins.set(manifest.name, pluginData);
-    return pluginData;
+    try {
+        for (const [kind, files] of [['Command', pluginData.commands], ['Event', pluginData.events], ['Handler', pluginData.handlers]]) {
+            for (const file of files) registrar[`register${kind}`](file);
+        }
+        const localesDir = path.join(pluginDir, 'locales');
+        if (fs.existsSync(localesDir)) i18n.mergePluginLocales(manifest.name, localesDir);
+        return pluginData;
+    } catch (error) {
+        unloadPlugin(manifest.name, registrar);
+        throw error;
+    }
+}
+
+function unloadPlugin(pluginName, registrar) {
+    const plugin = loadedPlugins.get(pluginName);
+    if (!plugin) return false;
+    for (const [kind, files] of [['Command', plugin.commands], ['Event', plugin.events], ['Handler', plugin.handlers]]) {
+        for (const file of files) {
+            try { registrar[`unregister${kind}`]?.(file); } catch (error) {
+                console.warn(`[PLUGINS] Could not unregister ${kind} for ${pluginName}: ${error?.name || 'Error'}`);
+            }
+        }
+    }
+    try { i18n.removePluginLocales(pluginName); } catch (error) {
+        console.warn(`[PLUGINS] Could not remove locales for ${pluginName}: ${error?.name || 'Error'}`);
+    }
+    const root = plugin.cacheRoot || path.resolve(plugin.dir);
+    for (const [file, cached] of Object.entries(require.cache)) {
+        const relative = path.relative(root, file);
+        if (relative && relative !== '..' && !relative.startsWith('..' + path.sep) && !path.isAbsolute(relative)) {
+            try {
+                if (typeof cached.exports?.close === 'function') Promise.resolve(cached.exports.close()).catch(() => {});
+            } catch { /* best effort */ }
+            finally { delete require.cache[file]; }
+        }
+    }
+    loadedPlugins.delete(pluginName);
+    return true;
+}
+
+function isIncompleteUpload(pluginDir) {
+    const marker = path.join(pluginDir, '.wosland-upload.json');
+    if (!fs.existsSync(marker)) return false;
+    try { return JSON.parse(fs.readFileSync(marker, 'utf8')).status !== 'installed'; } catch { return true; }
 }
 
 // ============================================================
@@ -162,6 +196,11 @@ function loadPlugins(registrar) {
 
         const pluginDir = path.join(PLUGINS_DIR, entry.name);
         const manifestPath = path.join(pluginDir, 'plugin.json');
+
+        if (isIncompleteUpload(pluginDir)) {
+            results.failed.push({ name: entry.name, error: 'Incomplete uploaded installation is disabled; remove it before trying again.' });
+            continue;
+        }
 
         if (!fs.existsSync(manifestPath)) {
             results.failed.push({ name: entry.name, error: 'Missing plugin.json' });
@@ -217,7 +256,8 @@ function getInstalledPluginManifests() {
             name: plugin.name,
             version: plugin.version,
             description: plugin.description,
-            author: plugin.author
+            author: plugin.author,
+            thirdParty: plugin.thirdParty
         });
     }
 
@@ -243,7 +283,8 @@ function getInstalledPluginManifests() {
                 name: manifest.name,
                 version: manifest.version,
                 description: manifest.description || '',
-                author: manifest.author || 'Unknown'
+                author: manifest.author || 'Unknown',
+                thirdParty: fs.existsSync(path.join(pluginDir, '.wosland-upload.json'))
             });
         } catch (error) {
             console.warn(`[PLUGINS] Failed to read installed manifest for ${entry.name}: ${error.message}`);
@@ -281,6 +322,7 @@ function rebuildPluginMap() {
         if (!entry.isDirectory()) continue;
 
         const pluginDir = path.join(PLUGINS_DIR, entry.name);
+        if (isIncompleteUpload(pluginDir)) continue;
         const manifestPath = path.join(pluginDir, 'plugin.json');
         if (!fs.existsSync(manifestPath)) continue;
 
@@ -304,6 +346,7 @@ module.exports = {
     getPluginPreserveConfig,
     getInstalledPluginManifests,
     registerPluginModules,
+    unloadPlugin,
     loadPlugins,
     rebuildPluginMap,
     getInstalledPlugins,

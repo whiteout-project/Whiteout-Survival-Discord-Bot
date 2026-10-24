@@ -48,9 +48,10 @@ function createBackToPluginsButton(userId, pluginLang) {
  * Creates plugins main page components for display
  * @param {Object} interaction - Interaction object
  * @param {Object} lang - Language object for localized text
+ * @param {Array} [section] - Current function section, replacing any previous section
  * @returns {Array} Array of components ready for display
  */
-function createPluginsComponents(interaction, lang) {
+function createPluginsComponents(interaction, lang, section = []) {
     const pluginLang = lang.plugins;
     const userId = interaction.user.id;
     const emojiMap = getEmojiMapForUser(userId);
@@ -71,6 +72,10 @@ function createPluginsComponents(interaction, lang) {
             .setLabel(pluginLang.buttons.accessMenu)
             .setStyle(ButtonStyle.Secondary)
             .setEmoji(getComponentEmoji(emojiMap, '1035')),
+        new ButtonBuilder()
+            .setCustomId(`plugins_upload_start_${userId}`)
+            .setLabel(pluginLang.upload.button)
+            .setStyle(ButtonStyle.Secondary),
         createBackToPanelButton(userId, lang)
     );
 
@@ -81,6 +86,7 @@ function createPluginsComponents(interaction, lang) {
                 new TextDisplayBuilder().setContent(
                     `${pluginLang.content.title}\n` +
                     `${pluginLang.content.description}\n` +
+                    `${pluginLang.upload.menuDescription}\n` +
 
                     `${pluginLang.content.installField.name}\n` +
                     `${pluginLang.content.installField.value}\n` +
@@ -95,7 +101,12 @@ function createPluginsComponents(interaction, lang) {
             .addSeparatorComponents(
                 new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true)
             )
-            .addActionRowComponents(actionRow)
+            .addActionRowComponents(actionRow),
+        // Rebuild the main view instead of copying Discord-assigned component IDs.
+        ...(section.length ? [
+            new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true),
+            ...section
+        ] : [])
     ];
 }
 
@@ -120,6 +131,7 @@ async function handlePluginsMenu(interaction) {
 
         await interaction.update({
             components,
+            attachments: [],
             flags: MessageFlags.IsComponentsV2
         });
 
