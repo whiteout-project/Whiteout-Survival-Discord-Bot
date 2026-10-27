@@ -24,6 +24,56 @@ This guide covers everything you need to create, structure, and distribute plugi
 
 ## Overview
 
+### Optional Player Sync integration
+
+Core exposes `src/functions/Players/playerSyncIntegration.js` rather than loading
+plugin files directly. `registerPlayerSyncIntegration(service)` accepts an
+`apiVersion: 1` service with `enrichPlayer`, `executeProcess` and `canRunProcess`,
+and returns an ownership-aware cleanup function. `getPlayerSyncIntegration()`
+returns `null` when absent. Registration survives module-cache reloads through a
+shared symbol and rejects a second active registration.
+
+The loaded plugin adds Alliances/Players navigation buttons, enriches normal ID additions and
+executes the low-priority `player_sync` action. Discord and authenticated panel
+routes call its same authorization/validation service. Configuration, quota,
+schedule, import snapshot and report tables use the `plugin_player_sync_` prefix
+on the existing core SQLite connection. Profile/history/outbox/checkpoint writes
+share a transaction. Cleanup unregisters the bridge/listeners, aborts requests and
+pauses jobs; the queue skips unavailable plugin actions. No monkey-patching or
+separate plugin database is involved. User setup is documented in the plugin's
+`README.md`.
+
+The Player Sync plugin follows the normal `commands/`, `handlers/`, `locales/`
+layout, with provider JSON profiles in `examples/`. Its root modules separate
+lifecycle wiring (`runtime.js`), Discord components (`discord.js`), shared
+operations (`service.js`), persistence (`store.js`), profile validation/mapping
+(`profile.js`) and bounded HTTPS transport (`transport.js`). The runtime supplies
+the core `PERMISSIONS`, `hasPermission` and per-user emoji helpers. The panel
+reuses its existing form cards, selectors, checkboxes, loading buttons and modal;
+it calls the same plugin service rather than importing plugin implementation files.
+
+`createProcessRecord` is the synchronous form of the existing asynchronous
+`createProcess` API. The plugin uses it inside a shared SQLite transaction to
+commit a process and its run metadata together; a crash cannot leave a job without
+its ownership/revision record. Existing callers retain `createProcess` unchanged.
+
+Player Sync rechecks the initiating administrator before each outbound request,
+including retries after quota waits, and before applying a run/import result.
+Connection pause generations discard in-flight results even if the same revision
+is enabled again. A 401/403 aborts sibling requests for that game. Quota identity
+normalizes equivalent API-key/Bearer credentials, migrates existing header-specific
+counters transactionally, and preserves the longest reset/cooldown. Import tokens
+authorize only preview-approved additions; a removed existing/conflicting member
+requires a new preview rather than being silently re-added.
+
+Pending report delivery uses `message_id` on the first report in a batch to save
+its report IDs, rendered chunks, destination and acknowledged message IDs. On
+completion, every report stores the final message-ID array. This keeps new rows
+and restarts from shifting partially delivered batches. Delivery rechecks the
+current alliance channel before each send; changing channels starts a new delivery
+for that destination. Discord nonces also reduce duplicates when a send succeeds
+but its acknowledgement has not yet been saved.
+
 The plugin system lets you extend the bot with new slash commands, button/menu handlers, and event listeners — all loaded dynamically from the `plugins/` directory at the project root.
 
 **Key facts:**
@@ -551,6 +601,46 @@ Focused local verification uses `node --test tests/plugin-archive.test.cjs tests
 ### Official Registry
 
 The official catalog contains only plugins published through WOSLand's registry. Uploading a ZIP does not add it to that catalog or imply WOSLand review or endorsement.
+
+The maintainer publisher reads the explicit list in `backpack/official-plugins.json`.
+Every listed plugin must be present with a matching ID and stable version; uploaded
+third-party folders and links are rejected. Local databases, environment/key files,
+Git metadata, tests and installation markers are omitted. `node publish-plugins.js
+--dry-run` builds and validates both archives locally without GitHub requests.
+The normal `--message` command publishes the whole listed bundle, not just the
+plugin named in the commit message. Removing an official plugin from the list also
+removes it from the published catalog.
+
+The publisher includes per-plugin `engines`, ZIP size and SHA-256 in the registry.
+A content-derived release tag lets reruns resume the same draft. Assets are
+uploaded and verified before the draft becomes public, including when the Git
+repository itself has no changes. The central proxy accepts only complete bundles
+and retains its last good cache when a newer bundle is incomplete. Download URLs
+come from matching GitHub release assets, not a registry-supplied external URL.
+Changed archive contents require a plugin version bump; downgrades are rejected.
+The packager bounds archive and extracted sizes to the official installer's limits.
+
+The core checks declared bot/Node requirements before installation or unloading an
+existing plugin, verifies downloaded identity/version and available checksums, and
+bounds official ZIP extraction. An update saves replaceable code in
+`plugins/.updates/{name}/`; dependency changes retain the previous `node_modules`.
+Copy, dependency or registration failures restore the old files and reload the
+previous plugin. Interrupted updates are recovered before startup loading; an
+unrecoverable transaction remains disabled with its backup preserved. Databases,
+environment files, Git metadata and declared persistent paths remain in place.
+This restores files and registrations, not arbitrary data changes made by plugin
+code or npm scripts. Official plugins are trusted executable code.
+
+Handlers still initialize synchronously and return their cleanup function. A
+handler starting an asynchronous service can expose `cleanup.ready`, a promise
+that rejects if startup fails. Official installs/updates wait up to 100 seconds
+for declared readiness before committing; web-panel uses this for server startup.
+Undeclared asynchronous work cannot be verified by the generic loader.
+
+The Settings auto-updater also excludes uploaded plugins and incompatible versions,
+and reports only successfully applied plugin updates. A newer core must be applied
+before plugins requiring it become eligible. Older cores do not gain these checks
+until updated. See `backpack/central-proxy/README.md` for the maintainer release order.
 
 To distribute via the bot's 1-click install system:
 

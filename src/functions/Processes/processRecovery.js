@@ -106,7 +106,7 @@ class ProcessRecovery {
                 await this.handleCrashedAutoRefresh(process);
                 return false; // No confirmation needed
             }
-            if (process.action === 'state_search') {
+            if (process.action === 'state_search' || process.action === 'player_sync') {
                 return false; // Saved scan progress resumes from the queue.
             }
 

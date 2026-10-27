@@ -39,6 +39,7 @@ class QueueManager {
     }
 
     async startProcess(process, paused = null) {
+        if (process.action === 'player_sync' && !require('../Players/playerSyncIntegration').canRunPlayerSyncProcess(process)) return false;
         const executor = getProcessExecutor();
         if (executor.activeProcesses.has(process.id)) return false;
 
@@ -178,6 +179,7 @@ class QueueManager {
             let position = 0;
 
             for (const queuedProcess of queuedProcesses) {
+                if (queuedProcess.action === 'player_sync' && !require('../Players/playerSyncIntegration').canRunPlayerSyncProcess(queuedProcess)) continue;
                 if (queuedProcess.id === processId) break;
                 if (resolveProcessGameType(queuedProcess) !== processGameType) continue;
                 if (queuedProcess.priority < process.priority ||
@@ -241,7 +243,7 @@ class QueueManager {
                     continue;
                 }
 
-                await this.startProcess(queuedProcess);
+                if (!(await this.startProcess(queuedProcess))) continue;
                 occupiedGames.add(gameType);
                 startedProcesses.push(queuedProcess.id);
             }

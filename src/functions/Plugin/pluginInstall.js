@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const https = require('https');
-const { acquire7z } = require('../utility/ensure7zip');
+const AdmZip = require('adm-zip');
 const {
     ButtonBuilder,
     ButtonStyle,
@@ -10,13 +10,16 @@ const {
     TextDisplayBuilder,
     SectionBuilder,
     SeparatorBuilder,
-    SeparatorSpacingSize
+    SeparatorSpacingSize,
+    escapeMarkdown
 } = require('discord.js');
 const { getUserInfo, handleError, assertUserMatches } = require('../utility/commonFunctions');
 const { createPluginsComponents } = require('./plugins');
 const { getComponentEmoji, getEmojiMapForUser } = require('../utility/emojis');
 const { createUniversalPaginationButtons } = require('../Pagination/universalPagination');
 const { isGitMetadataPath } = require('./pluginGitMetadata');
+const { isProtectedPluginPath, beginPluginUpdate } = require('./pluginUpdateTransaction');
+const semver = require('semver');
 const {
     PLUGINS_DIR, loadedPlugins, validateManifest, registerPluginModules, getPluginPreserveConfig, getInstalledPluginManifests
 } = require('./pluginsLoader');
@@ -123,7 +126,13 @@ function requestPluginUpdatesViaProxy(installedPlugins) {
  */
 function downloadFile(url, destPath, remainingRedirects = MAX_REDIRECTS) {
     return new Promise((resolve) => {
+        let target;
+        try {
+            target = new URL(url);
+            if (target.protocol !== 'https:' || target.username || target.password) return resolve(false);
+        } catch { return resolve(false); }
         const file = fs.createWriteStream(destPath);
+        file.on('error', () => resolve(false));
         const cleanupFile = (callback) => {
             file.close(() => {
                 if (fs.existsSync(destPath)) {
@@ -133,22 +142,33 @@ function downloadFile(url, destPath, remainingRedirects = MAX_REDIRECTS) {
             });
         };
 
-        https.get(url, { headers: { 'User-Agent': 'WhiteoutSurvivalBot' } }, (res) => {
+        const request = https.get(target, { headers: { 'User-Agent': 'WhiteoutSurvivalBot' } }, (res) => {
             if ((res.statusCode === 301 || res.statusCode === 302) && remainingRedirects > 0) {
+                res.resume();
                 cleanupFile(() => {
-                    downloadFile(res.headers.location, destPath, remainingRedirects - 1).then(resolve);
+                    let next;
+                    try { next = new URL(res.headers.location, target).href; }
+                    catch { return resolve(false); }
+                    downloadFile(next, destPath, remainingRedirects - 1).then(resolve, () => resolve(false));
                 });
                 return;
             }
             if (res.statusCode !== 200) {
+                res.resume();
                 cleanupFile(() => resolve(false));
                 return;
             }
+            let bytes = 0;
+            res.on('data', chunk => { bytes += chunk.length; if (bytes > 64 * 1024 * 1024) request.destroy(new Error('Plugin archive exceeds download limit.')); });
+            res.on('error', () => cleanupFile(() => resolve(false)));
             res.pipe(file);
             file.on('finish', () => { file.close(() => resolve(true)); });
         }).on('error', () => {
             cleanupFile(() => resolve(false));
         });
+        request.setTimeout(30000, () => request.destroy(new Error('Plugin download timed out.')));
+        const deadline = setTimeout(() => request.destroy(new Error('Plugin download timed out.')), 30000);
+        request.on('close', () => clearTimeout(deadline));
     });
 }
 
@@ -210,37 +230,26 @@ function getExtractedPluginRoot(extractDir) {
  * @param {string} downloadUrl - ZIP download URL
  * @returns {Promise<{ zipPath: string, extractDir: string, pluginRoot: string }>}
  */
-async function downloadAndExtractPluginArchive(pluginName, downloadUrl) {
+async function downloadAndExtractPluginArchive(pluginName, downloadUrl, entry = {}) {
     const os = require('os');
-    const { execSync } = require('child_process');
-
-    const zipPath = path.join(os.tmpdir(), `wos_plugin_${pluginName}.zip`);
-    const extractDir = path.join(os.tmpdir(), `wos_plugin_${pluginName}_extract`);
+    const extractDir = fs.mkdtempSync(path.join(os.tmpdir(), `wos_plugin_${pluginName}_`));
+    const zipPath = `${extractDir}.zip`;
 
     console.log(`[PLUGINS] Downloading ${pluginName}...`);
     const downloaded = await downloadFile(downloadUrl, zipPath);
     if (!downloaded) {
+        cleanupTempPaths(extractDir, zipPath);
         throw new Error(`Failed to download plugin "${pluginName}".`);
     }
 
-    cleanupTempPaths(extractDir);
-    fs.mkdirSync(extractDir, { recursive: true });
-
-    const { binPath: sevenZipPath, cleanupPath: sevenZipCleanup } = await acquire7z(os.tmpdir());
-    if (!sevenZipPath) {
-        cleanupTempPaths(extractDir, zipPath);
-        throw new Error('Could not locate 7-Zip binary for extraction.');
-    }
-
     try {
-        execSync(`"${sevenZipPath}" x "${zipPath}" -o"${extractDir}" -y`, { stdio: 'pipe' });
+        const buffer = fs.readFileSync(zipPath);
+        if (entry.size !== undefined && buffer.length !== entry.size) throw new Error('Plugin archive size mismatch.');
+        if (entry.sha256 && require('crypto').createHash('sha256').update(buffer).digest('hex') !== entry.sha256) throw new Error('Plugin archive checksum mismatch.');
+        extractOfficialArchive(buffer, extractDir);
     } catch (error) {
         cleanupTempPaths(extractDir, zipPath);
         throw new Error(`Failed to extract plugin: ${error.message}`);
-    } finally {
-        if (sevenZipCleanup && fs.existsSync(sevenZipCleanup)) {
-            try { fs.unlinkSync(sevenZipCleanup); } catch { /* best-effort cleanup */ }
-        }
     }
 
     const pluginRoot = getExtractedPluginRoot(extractDir);
@@ -250,6 +259,39 @@ async function downloadAndExtractPluginArchive(pluginName, downloadUrl) {
     }
 
     return { zipPath, extractDir, pluginRoot };
+}
+
+function extractOfficialArchive(buffer, extractDir) {
+    if (buffer.length > 64 * 1024 * 1024) throw new Error('Plugin archive is too large.');
+    const entries = new AdmZip(buffer).getEntries();
+    if (!entries.length || entries.length > 5000) throw new Error('Plugin archive has too many entries.');
+    const names = new Map();
+    let total = 0;
+    for (const entry of entries) {
+        const name = entry.entryName.replace(/\/$/, '');
+        const parts = name.split('/');
+        const mode = (entry.attr >>> 16) & 0xf000;
+        if (!name || parts.some(part => !part || part === '.' || part === '..' || /[\\:\x00-\x1f<>"|?*]|[. ]$/.test(part) || /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(part)) ||
+            mode === 0xa000 || (mode && mode !== 0x8000 && mode !== 0x4000) || names.has(name.toLowerCase()) || (entry.header.flags & 1)) throw new Error('Unsafe plugin archive entry.');
+        names.set(name.toLowerCase(), entry.isDirectory);
+        total += entry.header.size;
+        if (entry.header.size > 32 * 1024 * 1024 || total > 256 * 1024 * 1024) throw new Error('Plugin extraction limit exceeded.');
+    }
+    for (const [name] of names) {
+        const parts = name.split('/');
+        for (let i = 1; i < parts.length; i++) if (names.get(parts.slice(0, i).join('/')) === false) throw new Error('Conflicting plugin archive paths.');
+    }
+    for (const entry of entries) {
+        const target = path.resolve(extractDir, entry.entryName);
+        if (!target.startsWith(path.resolve(extractDir) + path.sep)) throw new Error('Plugin extraction outside staging directory.');
+        if (entry.isDirectory) fs.mkdirSync(target, { recursive: true });
+        else {
+            const data = entry.getData();
+            if (data.length !== entry.header.size) throw new Error('Invalid plugin archive size.');
+            fs.mkdirSync(path.dirname(target), { recursive: true });
+            fs.writeFileSync(target, data, { flag: 'wx' });
+        }
+    }
 }
 
 /**
@@ -266,7 +308,7 @@ function installPluginDependencies(pluginName, pluginDir) {
     try {
         execSync('npm install --omit=optional --production', { cwd: pluginDir, stdio: 'pipe' });
     } catch (error) {
-        console.warn(`[PLUGINS] Warning: dependency install for ${pluginName} failed: ${error.message}`);
+        throw new Error(`Dependency installation failed for ${pluginName}.`);
     }
 }
 
@@ -333,28 +375,6 @@ function resolveUpdatePreserveConfig(installedManifest = {}, downloadedManifest 
  * @param {{ dirs: Set<string>, files: Set<string>, extensions: Set<string> }} preserveConfig
  * @returns {boolean}
  */
-function isProtectedPluginPath(relativePath, isDirectory, preserveConfig) {
-    const normalizedPath = relativePath.replace(/\\/g, '/');
-
-    if (isGitMetadataPath(normalizedPath)) return true;
-
-    for (const protectedDir of preserveConfig.dirs) {
-        if (normalizedPath === protectedDir || normalizedPath.startsWith(`${protectedDir}/`)) {
-            return true;
-        }
-    }
-
-    if (!isDirectory && preserveConfig.files.has(normalizedPath)) {
-        return true;
-    }
-
-    if (!isDirectory && preserveConfig.extensions.has(path.extname(normalizedPath).toLowerCase())) {
-        return true;
-    }
-
-    return false;
-}
-
 /**
  * Copies changed plugin files from the extracted update into the installed plugin directory.
  * Protected files and directories are skipped.
@@ -553,19 +573,26 @@ function buildInstallSection({ userId, pluginLang, lang, available, registryErro
         const pagePlugins = available.slice(currentPage * ITEMS_PER_PAGE, (currentPage + 1) * ITEMS_PER_PAGE);
 
         pagePlugins.forEach((plugin, index) => {
+            const compatible = validateManifest(plugin, 'registry').valid;
+            const requirements = plugin.engines
+                ? `\n${pluginLang.upload.compatibility}: Bot ${plugin.engines.bot || '—'} · Node.js ${plugin.engines.node || '—'}`
+                : '';
             const installButton = new ButtonBuilder()
                 .setCustomId(`plugins_install_${plugin.name}_${userId}`)
                 .setLabel(pluginLang.buttons.install)
                 .setStyle(ButtonStyle.Success)
+                .setDisabled(!compatible)
                 .setEmoji(getComponentEmoji(emojiMap, '1004'));
 
             const section = new SectionBuilder()
                 .setButtonAccessory(installButton)
                 .addTextDisplayComponents(
                     new TextDisplayBuilder().setContent(
-                        `**${plugin.name}**\n` +
-                        `- ${plugin.description || '—'}\n` +
-                        `- \`v${plugin.version}\``
+                        `**${escapeMarkdown(String(plugin.name).slice(0, 64))}**\n` +
+                        `- ${escapeMarkdown(String(plugin.description || '—').slice(0, 200))}\n` +
+                        `- \`v${escapeMarkdown(String(plugin.version).slice(0, 64))}\`` +
+                        escapeMarkdown(requirements.slice(0, 180)) +
+                        (compatible ? '' : `\n${pluginLang.upload.errors.compatibility}`)
                     )
                 );
 
@@ -633,7 +660,7 @@ async function handlePluginsInstallMenu(interaction, page = 0) {
         if (!registry) registryError = true;
 
         const installedNames = new Set(installed.map(p => p.name));
-        const available = registry?.plugins?.filter(p => !installedNames.has(p.name)) || [];
+        const available = registry?.plugins?.filter(p => !installedNames.has(p.name) && validateManifest(p, 'registry', { checkCompatibility: false }).valid) || [];
 
         const sectionComponents = buildInstallSection({
             userId, pluginLang, lang, available, registryError, page
@@ -822,6 +849,9 @@ async function fetchRegistry() {
  */
 async function installPlugin(pluginName, registrar, options = {}) {
     const { beforeRegister = null } = options;
+    let archive;
+    let installedDir;
+    let installedIdentity;
 
     try {
         if (!/^[a-zA-Z0-9_-]+$/.test(pluginName)) {
@@ -834,7 +864,10 @@ async function installPlugin(pluginName, registrar, options = {}) {
 
         const destDir = path.join(PLUGINS_DIR, pluginName);
         if (fs.existsSync(destDir)) {
-            return { success: false, message: `Plugin folder "${pluginName}" already exists. Update it or move it before installing.` };
+            return {
+                success: false,
+                message: `Plugin folder "${pluginName}" already exists. Update it or move it before installing.`
+            };
         }
 
         const registry = await fetchRegistry();
@@ -846,18 +879,27 @@ async function installPlugin(pluginName, registrar, options = {}) {
         if (!entry) {
             return { success: false, message: `Plugin "${pluginName}" not found in registry.` };
         }
+        const compatibility = validateManifest(entry, 'registry');
+        if (!compatibility.valid) return { success: false, message: compatibility.error };
 
         const downloadUrl = entry.downloadUrl;
         if (!downloadUrl) {
-            return { success: false, message: `Plugin "${pluginName}" is missing a release download URL from the central proxy.` };
+            return {
+                success: false,
+                message: `Plugin "${pluginName}" is missing a release download URL from the central proxy.`
+            };
         }
-        const { zipPath, extractDir, pluginRoot } = await downloadAndExtractPluginArchive(pluginName, downloadUrl);
+        archive = await downloadAndExtractPluginArchive(pluginName, downloadUrl, entry);
+        const { pluginRoot } = archive;
+        const manifest = validateDownloadedPlugin(pluginRoot, entry);
 
         if (!fs.existsSync(PLUGINS_DIR)) fs.mkdirSync(PLUGINS_DIR, { recursive: true });
-
+        // Recheck after downloading: another installation must never be overwritten.
+        fs.mkdirSync(destDir);
+        installedDir = destDir;
+        installedIdentity = fs.lstatSync(destDir);
+        fs.writeFileSync(path.join(destDir, '.wosland-install-pending.json'), '{}', { flag: 'wx' });
         copyDirRecursive(pluginRoot, destDir);
-
-        cleanupTempPaths(extractDir, zipPath);
 
         installPluginDependencies(pluginName, destDir);
 
@@ -865,19 +907,71 @@ async function installPlugin(pluginName, registrar, options = {}) {
             await beforeRegister(destDir);
         }
 
-        const manifest = JSON.parse(fs.readFileSync(path.join(destDir, 'plugin.json'), 'utf8'));
-        const validation = validateManifest(manifest, destDir);
-        if (!validation.valid) {
-            return { success: false, message: validation.error };
-        }
-
-        registerPluginModules(destDir, manifest, registrar);
+        await waitForPluginReady(registerPluginModules(destDir, manifest, registrar));
+        fs.unlinkSync(path.join(destDir, '.wosland-install-pending.json'));
         console.log(`[PLUGINS] Installed: ${manifest.name} v${manifest.version}`);
 
         return { success: true, message: `Plugin "${manifest.name}" v${manifest.version} installed successfully.` };
-
     } catch (error) {
+        if (installedDir) {
+            require('./pluginsLoader').unloadPlugin(pluginName, registrar);
+            try {
+                const current = fs.lstatSync(installedDir);
+                if (
+                    current.isSymbolicLink() ||
+                    current.ino !== installedIdentity.ino ||
+                    current.dev !== installedIdentity.dev
+                )
+                    throw new Error('Installation folder changed.');
+                fs.rmSync(installedDir, { recursive: true, force: true });
+            } catch {
+                return {
+                    success: false,
+                    message:
+                        'Installation failed and could not be removed. The pending installation remains disabled; inspect its folder before restarting.'
+                };
+            }
+        }
         return { success: false, message: `Install failed: ${error.message}` };
+    } finally {
+        cleanupTempPaths(archive?.extractDir, archive?.zipPath);
+    }
+}
+
+function validateDownloadedPlugin(pluginRoot, entry) {
+    if (
+        fs.existsSync(path.join(pluginRoot, '.wosland-upload.json')) ||
+        fs.existsSync(path.join(pluginRoot, '.wosland-install-pending.json'))
+    )
+        throw new Error('Official archive contains an installation marker.');
+    const manifest = JSON.parse(fs.readFileSync(path.join(pluginRoot, 'plugin.json'), 'utf8'));
+    const validation = validateManifest(manifest, pluginRoot);
+    if (!validation.valid) throw new Error(validation.error);
+    if (manifest.name !== entry.name || manifest.version !== entry.version)
+        throw new Error('Plugin manifest does not match the inspected registry entry.');
+    const packagePath = path.join(pluginRoot, 'package.json');
+    if (fs.existsSync(packagePath)) {
+        const pkg = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
+        if (
+            pkg.engines?.node &&
+            (!semver.validRange(pkg.engines.node) || !semver.satisfies(process.versions.node, pkg.engines.node))
+        )
+            throw new Error(`Plugin requires Node.js ${pkg.engines.node}.`);
+    }
+    return manifest;
+}
+
+async function waitForPluginReady(plugin) {
+    let timer;
+    try {
+        await Promise.race([
+            plugin.ready,
+            new Promise((_, reject) => {
+                timer = setTimeout(() => reject(new Error('Plugin startup timed out.')), 100000);
+            })
+        ]);
+    } finally {
+        clearTimeout(timer);
     }
 }
 
@@ -889,15 +983,22 @@ async function checkPluginUpdates() {
     const installedPlugins = getInstalledPluginManifests().filter(plugin => !plugin.thirdParty);
     const proxyPayload = await requestPluginUpdatesViaProxy(installedPlugins);
     if (proxyPayload?.updates) {
-        return { updates: proxyPayload.updates };
+        return {
+            updates: proxyPayload.updates.filter(
+                update =>
+                    installedPlugins.some(plugin => plugin.name === update.name) &&
+                    validateManifest({ name: update.name, version: update.latest, engines: update.engines }, 'registry')
+                        .valid
+            )
+        };
     }
     return { updates: [], error: 'Could not check plugin updates.' };
 }
 
 /**
  * Updates a specific plugin to the latest version from the registry.
- * Unloads the plugin first (closing DB connections so WAL is checkpointed),
- * then stages database files, wipes the directory, and reinstalls.
+ * Validates before unloading, saves replaceable code/dependencies, and restores
+ * the previous installation if copying, dependency installation or loading fails.
  * @param {string} pluginName - Plugin name to update
  * @param {Object} registrar - Register/unregister functions
  * @returns {Promise<{ success: boolean, message: string }>}
@@ -909,6 +1010,9 @@ async function updatePlugin(pluginName, registrar) {
     const pluginManifestPath = path.join(pluginDir, 'plugin.json');
     let zipPath = null;
     let extractDir = null;
+    let transaction;
+    let wasLoaded = false;
+    let installedManifest;
 
     try {
         if (!/^[a-zA-Z0-9_-]+$/.test(pluginName)) {
@@ -920,8 +1024,16 @@ async function updatePlugin(pluginName, registrar) {
         }
 
         if (fs.existsSync(path.join(pluginDir, '.wosland-upload.json'))) {
-            return { success: false, message: 'Uploaded third-party plugins cannot be updated from the official catalog.' };
+            return {
+                success: false,
+                message: 'Uploaded third-party plugins cannot be updated from the official catalog.'
+            };
         }
+        if (fs.existsSync(path.join(pluginDir, '.wosland-install-pending.json')))
+            return {
+                success: false,
+                message: 'An incomplete installation must be removed before updating this plugin.'
+            };
 
         const registry = await fetchRegistry();
         if (!registry || !Array.isArray(registry.plugins)) {
@@ -932,57 +1044,59 @@ async function updatePlugin(pluginName, registrar) {
         if (!entry) {
             return { success: false, message: `Plugin "${pluginName}" not found in registry.` };
         }
+        const compatibility = validateManifest(entry, 'registry');
+        if (!compatibility.valid) return { success: false, message: compatibility.error };
 
         const downloadUrl = entry.downloadUrl;
         if (!downloadUrl) {
-            return { success: false, message: `Plugin "${pluginName}" is missing a release download URL from the central proxy.` };
+            return {
+                success: false,
+                message: `Plugin "${pluginName}" is missing a release download URL from the central proxy.`
+            };
         }
-        const archive = await downloadAndExtractPluginArchive(pluginName, downloadUrl);
+        const archive = await downloadAndExtractPluginArchive(pluginName, downloadUrl, entry);
         zipPath = archive.zipPath;
         extractDir = archive.extractDir;
 
-        const downloadedManifest = JSON.parse(fs.readFileSync(path.join(archive.pluginRoot, 'plugin.json'), 'utf8'));
-        const downloadedValidation = validateManifest(downloadedManifest, archive.pluginRoot);
-        if (!downloadedValidation.valid) {
-            return { success: false, message: downloadedValidation.error };
-        }
+        const downloadedManifest = validateDownloadedPlugin(archive.pluginRoot, entry);
 
-        let installedManifest = {};
-        try {
-            if (fs.existsSync(pluginManifestPath)) {
-                installedManifest = JSON.parse(fs.readFileSync(pluginManifestPath, 'utf8'));
-            }
-        } catch (error) {
-            console.warn(`[PLUGINS] Warning: could not read installed manifest for ${pluginName}: ${error.message}`);
-        }
+        installedManifest = JSON.parse(fs.readFileSync(pluginManifestPath, 'utf8'));
+        if (installedManifest.name !== pluginName)
+            throw new Error('Installed plugin identity does not match its folder.');
+        if (semver.lt(downloadedManifest.version, installedManifest.version))
+            throw new Error('Refusing to downgrade an installed plugin.');
 
         const preserveConfig = resolveUpdatePreserveConfig(installedManifest, downloadedManifest);
 
         const oldPackageHash = getFileHash(path.join(pluginDir, 'package.json'));
         const newPackageHash = getFileHash(path.join(archive.pluginRoot, 'package.json'));
-        const shouldInstallDependencies = !!newPackageHash && (
-            oldPackageHash !== newPackageHash ||
-            !fs.existsSync(path.join(pluginDir, 'node_modules'))
-        );
+        const shouldInstallDependencies =
+            !!newPackageHash &&
+            (oldPackageHash !== newPackageHash ||
+                getFileHash(path.join(pluginDir, 'package-lock.json')) !==
+                    getFileHash(path.join(archive.pluginRoot, 'package-lock.json')) ||
+                !fs.existsSync(path.join(pluginDir, 'node_modules')));
 
-        // Unload the plugin so file handles are released before overwriting files in place.
+        transaction = beginPluginUpdate(PLUGINS_DIR, pluginName, preserveConfig);
+        wasLoaded = loadedPlugins.has(pluginName);
         unloadPlugin(pluginName, registrar);
+        transaction.apply();
 
         const copyStats = copyUpdatedPluginFiles(archive.pluginRoot, pluginDir, preserveConfig);
         const removeStats = removeStalePluginFiles(pluginDir, archive.pluginRoot, preserveConfig);
+        if (copyStats.failed || removeStats.failed) throw new Error('Could not replace all plugin files.');
 
         if (shouldInstallDependencies) {
+            transaction.replaceDependencies();
             installPluginDependencies(pluginName, pluginDir);
         }
 
-        const finalManifest = JSON.parse(fs.readFileSync(path.join(pluginDir, 'plugin.json'), 'utf8'));
-        const validation = validateManifest(finalManifest, pluginDir);
-        if (!validation.valid) {
-            return { success: false, message: validation.error };
-        }
+        const finalManifest = validateDownloadedPlugin(pluginDir, entry);
 
         loadedPlugins.delete(pluginName);
-        registerPluginModules(pluginDir, finalManifest, registrar);
+        await waitForPluginReady(registerPluginModules(pluginDir, finalManifest, registrar));
+        transaction.commit();
+        transaction = null;
         console.log(`[PLUGINS] Updated: ${finalManifest.name} v${finalManifest.version}`);
 
         cleanupTempPaths(extractDir, zipPath);
@@ -991,16 +1105,33 @@ async function updatePlugin(pluginName, registrar) {
             `${copyStats.added} files added`,
             `${removeStats.removed} stale entries removed`
         ];
-        const failureCount = copyStats.failed + removeStats.failed;
-        if (failureCount > 0) {
-            summary.push(`${failureCount} file operations failed`);
-        }
-
         return {
-            success: failureCount === 0,
+            success: true,
             message: `Plugin "${finalManifest.name}" v${finalManifest.version} updated successfully. ${summary.join(', ')}.`
         };
     } catch (error) {
+        if (transaction) {
+            unloadPlugin(pluginName, registrar);
+            try {
+                transaction.rollback();
+            } catch {
+                return {
+                    success: false,
+                    message:
+                        'Plugin update failed. Its previous files could not be fully restored; inspect the preserved update backup before restarting.'
+                };
+            }
+            try {
+                if (wasLoaded) await waitForPluginReady(registerPluginModules(pluginDir, installedManifest, registrar));
+            } catch {
+                return {
+                    success: false,
+                    message:
+                        'Plugin update failed. Its previous files were restored, but the previous plugin could not be loaded. Restart the bot after checking the plugin.'
+                };
+            }
+            return { success: false, message: `Update failed; previous plugin restored: ${error.message}` };
+        }
         return { success: false, message: `Update failed: ${error.message}` };
     } finally {
         cleanupTempPaths(extractDir, zipPath);

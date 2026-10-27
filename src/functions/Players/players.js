@@ -9,6 +9,7 @@ const { createIdChannelButton } = require('./idChannel');
 const { createExportButton } = require('./export');
 const { getUserInfo, assertUserMatches, handleError, hasPermission } = require('../utility/commonFunctions');
 const { getComponentEmoji, getEmojiMapForUser } = require('../utility/emojis');
+const { getPlayerSyncIntegration } = require('./playerSyncIntegration');
 
 
 /**
@@ -65,6 +66,14 @@ async function handlePlayerManagementButton(interaction) {
                 createExportButton(interaction.user.id, lang),
                 createBackToPanelButton(interaction.user.id, lang)
             );
+
+        if (getPlayerSyncIntegration()) {
+            actionRow2.addComponents(new ButtonBuilder()
+                .setCustomId(`ps_open_${interaction.user.id}`)
+                .setLabel(lang.plugins?.['player-sync']?.title || 'Player Sync')
+                .setStyle(ButtonStyle.Secondary)
+                .setEmoji(getComponentEmoji(getEmojiMapForUser(interaction.user.id), '1033')));
+        }
 
         const newSection = [
             new ContainerBuilder()

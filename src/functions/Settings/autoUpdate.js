@@ -13,6 +13,7 @@ const {
     ActionRowBuilder
 } = require('discord.js');
 const { settingsQueries, adminQueries } = require('../utility/database');
+const { validateManifest } = require('../Plugin/pluginsLoader');
 const { getUserInfo, handleError, assertUserMatches, updateComponentsV2AfterSeparator } = require('../utility/commonFunctions');
 const { getComponentEmoji, getEmojiMapForUser, replaceEmojiPlaceholders } = require('../utility/emojis');
 const {
@@ -75,7 +76,7 @@ function getInstalledPluginVersions() {
     if (typeof global.pluginManager?.getInstalled !== 'function') return [];
 
     return global.pluginManager.getInstalled()
-        .filter(plugin => plugin?.name && plugin?.version)
+        .filter(plugin => plugin?.name && plugin?.version && !plugin.thirdParty)
         .map(plugin => ({
             name: plugin.name,
             version: plugin.version
@@ -99,7 +100,14 @@ async function checkPluginUpdatesViaProxy() {
     });
 
     if (payload && Array.isArray(payload.updates)) {
-        return { updates: payload.updates };
+        return {
+            updates: payload.updates.filter(
+                update =>
+                    installedPlugins.some(plugin => plugin.name === update.name) &&
+                    validateManifest({ name: update.name, version: update.latest, engines: update.engines }, 'registry')
+                        .valid
+            )
+        };
     }
 
     if (typeof global.pluginManager?.checkUpdates === 'function') {
@@ -1301,11 +1309,13 @@ function startAutoUpdateScheduler(client) {
 
             // Apply available plugin updates before any restart
             let pluginsUpdated = false;
+            const appliedUpdates = [];
             if (hasPluginUpdates) {
                 for (const pu of newPluginUpdates) {
-                    lastNotifiedPluginVersions.set(pu.name, pu.latest);
                     const result = await global.pluginManager.update(pu.name);
                     if (result.success) {
+                        lastNotifiedPluginVersions.set(pu.name, pu.latest);
+                        appliedUpdates.push(pu);
                         pluginsUpdated = true;
                         console.log(`[AUTO-UPDATE] Plugin ${pu.name} updated to v${pu.latest}`);
                     } else {
@@ -1313,7 +1323,6 @@ function startAutoUpdateScheduler(client) {
                     }
                 }
                 // Notify owner about applied plugin updates
-                const appliedUpdates = newPluginUpdates.filter(pu => lastNotifiedPluginVersions.get(pu.name) === pu.latest);
                 if (appliedUpdates.length > 0) {
                     await notifyOwnerOfPluginUpdates(client, appliedUpdates, true);
                 }

@@ -75,11 +75,20 @@ await updateProcessStatus(42, 'completed');
 ```javascript
 const PROCESS_PRIORITIES = {
     ADD_PLAYER: 100000,
-    REDEEM_GIFTCODE: 200000
+    REDEEM_GIFTCODE: 200000,
+    STATE_SEARCH: 300000,
+    PLAYER_SYNC: 400000
 };
 ```
 
 #### Process Status Flow
+
+`player_sync` is supplied by the optional Player Sync integration. It runs after
+additions, redemptions and state searches for the same game. The queue skips it
+when unavailable, disabled, cooling down or no longer authorized. Pending players
+and retry times live in process progress; plugin tables hold revision, ownership
+and results. Recovery resumes these jobs without a Discord prompt. Expected quota
+waits and unloads return them to `queued` without losing their checkpoint.
 
 ```
 QUEUED ───▶ ACTIVE ───▶ COMPLETED

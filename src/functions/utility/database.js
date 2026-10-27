@@ -119,6 +119,8 @@ const schemas = {
             state_override INTEGER,
             state_search_blocked_for INTEGER,
             image_url TEXT,
+            power INTEGER,
+            profile_synced_at TEXT,
             alliance_id INTEGER,
             added_by TEXT NOT NULL,
             is_rich BOOLEAN DEFAULT 0,
@@ -449,6 +451,12 @@ try {
         }
         if (!playerCols.some(c => c.name === 'state_search_blocked_for')) {
             db.exec('ALTER TABLE players ADD COLUMN state_search_blocked_for INTEGER');
+        }
+        if (!playerCols.some(c => c.name === 'power')) {
+            db.exec('ALTER TABLE players ADD COLUMN power INTEGER');
+        }
+        if (!playerCols.some(c => c.name === 'profile_synced_at')) {
+            db.exec('ALTER TABLE players ADD COLUMN profile_synced_at TEXT');
         }
     } catch (e) {
         console.error('Database migration: failed to add player state columns', e);

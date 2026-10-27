@@ -214,4 +214,4 @@ async function executeStateSearch(processId) {
     await queueManager.startNextProcess();
 }
 
-module.exports = { candidateState, getPlayerStateInfo, queueStateSearch, executeStateSearch };
+module.exports = { candidateState, getPlayerStateInfo, queueStateSearch, executeStateSearch, queueMissedCodes };

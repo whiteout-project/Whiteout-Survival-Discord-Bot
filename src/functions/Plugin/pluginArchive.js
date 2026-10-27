@@ -239,7 +239,7 @@ function inspectPluginArchive(buffer, options = {}) {
     files = files.map(file => ({ ...file, path: file.path.slice(prefix.length) }));
     let manifest;
     try { manifest = JSON.parse(manifestFiles[0].data); } catch { fail('manifest'); }
-    if (!loader.validateManifest(manifest, 'upload').valid) fail('manifest');
+    if (!loader.validateManifest(manifest, 'upload', { checkCompatibility: false }).valid) fail('manifest');
     safePath(manifest.name);
     for (const key of ['dirs', 'files']) for (const entry of manifest.preserveOnUpdate?.[key] || []) safePath(entry);
     if (prefix && prefix !== `${manifest.name}/`) fail('structure');

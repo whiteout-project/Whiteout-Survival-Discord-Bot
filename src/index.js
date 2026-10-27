@@ -68,6 +68,7 @@ function registerHandler(filePath) {
     loadedHandlers.set(filePath, {
         cleanup: typeof cleanup === 'function' ? cleanup : null
     });
+    return { ready: typeof cleanup === 'function' ? cleanup.ready : null };
 }
 
 function unregisterHandler(filePath) {

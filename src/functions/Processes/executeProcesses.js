@@ -151,6 +151,15 @@ class ProcessExecutor {
         }
 
         switch (action) {
+            case 'player_sync': {
+                const service = require('../Players/playerSyncIntegration').getPlayerSyncIntegration();
+                if (!service || !service.canRunProcess(processData)) {
+                    await updateProcessStatus(processId, PROCESS_STATUS.QUEUED);
+                    return;
+                }
+                await service.executeProcess(processId);
+                break;
+            }
             case 'addplayer':
                 await this.executeAddPlayer(processId);
                 break;

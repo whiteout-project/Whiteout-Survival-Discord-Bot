@@ -1,6 +1,8 @@
 const fs = require('fs');
 const path = require('path');
+const semver = require('semver');
 const i18n = require('../../i18n');
+const { recoverPluginUpdates, hasPendingPluginUpdate } = require('./pluginUpdateTransaction');
 
 // ============================================================
 // PLUGIN SYSTEM — Core loader, validation, and shared state
@@ -22,7 +24,15 @@ const loadedPlugins = new Map();
  * @param {string} pluginDir - Directory path for context in error messages
  * @returns {{ valid: boolean, error?: string }}
  */
-function validateManifest(manifest, pluginDir) {
+function validateManifest(
+    manifest,
+    pluginDir,
+    {
+        checkCompatibility = true,
+        botVersion = require('../../../package.json').version,
+        nodeVersion = process.versions.node
+    } = {}
+) {
     if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) {
         return { valid: false, error: 'Plugin manifest must be an object' };
     }
@@ -32,24 +42,57 @@ function validateManifest(manifest, pluginDir) {
     if (!manifest.version || typeof manifest.version !== 'string') {
         return { valid: false, error: `Plugin "${manifest.name}" missing required "version" field` };
     }
+    if (!semver.valid(manifest.version))
+        return { valid: false, error: `Plugin "${manifest.name}" has an invalid semantic version.` };
     if (!/^[a-zA-Z0-9_-]+$/.test(manifest.name)) {
-        return { valid: false, error: `Plugin name "${manifest.name}" contains invalid characters (use a-z, 0-9, _, -)` };
+        return {
+            valid: false,
+            error: `Plugin name "${manifest.name}" contains invalid characters (use a-z, 0-9, _, -)`
+        };
+    }
+    if (manifest.engines !== undefined) {
+        if (!manifest.engines || typeof manifest.engines !== 'object' || Array.isArray(manifest.engines)) {
+            return { valid: false, error: `Plugin "${manifest.name}" has invalid compatibility requirements.` };
+        }
+        for (const [engine, version] of [
+            ['bot', botVersion],
+            ['node', nodeVersion]
+        ]) {
+            const range = manifest.engines[engine];
+            if (range === undefined) continue;
+            if (typeof range !== 'string' || range.length > 120 || !semver.validRange(range))
+                return { valid: false, error: `Invalid ${engine} requirement for "${manifest.name}".` };
+            if (checkCompatibility && !semver.satisfies(version, range))
+                return {
+                    valid: false,
+                    error: `Plugin "${manifest.name}" requires ${engine} ${range}; current version is ${version}. Update ${engine} first.`
+                };
+        }
     }
 
-    const isStringArray = (value) => Array.isArray(value) && value.every(item => typeof item === 'string');
+    const isStringArray = value => Array.isArray(value) && value.every(item => typeof item === 'string');
     const preserve = manifest.preserveOnUpdate;
     if (preserve !== undefined) {
         if (!preserve || typeof preserve !== 'object' || Array.isArray(preserve)) {
             return { valid: false, error: `Plugin "${manifest.name}" field "preserveOnUpdate" must be an object` };
         }
         if (preserve.dirs !== undefined && !isStringArray(preserve.dirs)) {
-            return { valid: false, error: `Plugin "${manifest.name}" field "preserveOnUpdate.dirs" must be an array of strings` };
+            return {
+                valid: false,
+                error: `Plugin "${manifest.name}" field "preserveOnUpdate.dirs" must be an array of strings`
+            };
         }
         if (preserve.files !== undefined && !isStringArray(preserve.files)) {
-            return { valid: false, error: `Plugin "${manifest.name}" field "preserveOnUpdate.files" must be an array of strings` };
+            return {
+                valid: false,
+                error: `Plugin "${manifest.name}" field "preserveOnUpdate.files" must be an array of strings`
+            };
         }
         if (preserve.extensions !== undefined && !isStringArray(preserve.extensions)) {
-            return { valid: false, error: `Plugin "${manifest.name}" field "preserveOnUpdate.extensions" must be an array of strings` };
+            return {
+                valid: false,
+                error: `Plugin "${manifest.name}" field "preserveOnUpdate.extensions" must be an array of strings`
+            };
         }
     }
 
@@ -120,15 +163,31 @@ function buildPluginData(pluginDir, manifest) {
  * @param {Object} registrar - Object with registerCommand, registerEvent, registerHandler
  * @returns {Object} The pluginData entry that was added to loadedPlugins
  */
-function registerPluginModules(pluginDir, manifest, registrar) {
+function registerPluginModules(pluginDir, manifest, registrar, compatibility = {}) {
+    const validation = validateManifest(manifest, pluginDir, compatibility);
+    if (!validation.valid) throw new Error(validation.error);
     const pluginData = buildPluginData(pluginDir, manifest);
     if (loadedPlugins.has(manifest.name)) throw new Error(`Plugin "${manifest.name}" is already loaded`);
     // Publish rollback metadata before the first module can register anything.
     loadedPlugins.set(manifest.name, pluginData);
     try {
-        for (const [kind, files] of [['Command', pluginData.commands], ['Event', pluginData.events], ['Handler', pluginData.handlers]]) {
-            for (const file of files) registrar[`register${kind}`](file);
+        const readiness = [];
+        for (const [kind, files] of [
+            ['Command', pluginData.commands],
+            ['Event', pluginData.events],
+            ['Handler', pluginData.handlers]
+        ]) {
+            for (const file of files) {
+                const registration = registrar[`register${kind}`](file);
+                if (registration?.ready) {
+                    const ready = Promise.resolve(registration.ready);
+                    ready.catch(() => {});
+                    readiness.push(ready);
+                }
+            }
         }
+        pluginData.ready = Promise.all(readiness);
+        pluginData.ready.catch(() => {});
         const localesDir = path.join(pluginDir, 'locales');
         if (fs.existsSync(localesDir)) i18n.mergePluginLocales(manifest.name, localesDir);
         return pluginData;
@@ -166,6 +225,7 @@ function unloadPlugin(pluginName, registrar) {
 }
 
 function isIncompleteUpload(pluginDir) {
+    if (fs.existsSync(path.join(pluginDir, '.wosland-install-pending.json'))) return true;
     const marker = path.join(pluginDir, '.wosland-upload.json');
     if (!fs.existsSync(marker)) return false;
     try { return JSON.parse(fs.readFileSync(marker, 'utf8')).status !== 'installed'; } catch { return true; }
@@ -189,13 +249,19 @@ function loadPlugins(registrar) {
         return results;
     }
 
+    recoverPluginUpdates(PLUGINS_DIR);
     const entries = fs.readdirSync(PLUGINS_DIR, { withFileTypes: true });
 
     for (const entry of entries) {
-        if (!entry.isDirectory()) continue;
+        if (!entry.isDirectory() || entry.name === '.updates') continue;
 
         const pluginDir = path.join(PLUGINS_DIR, entry.name);
         const manifestPath = path.join(pluginDir, 'plugin.json');
+
+        if (hasPendingPluginUpdate(PLUGINS_DIR, entry.name)) {
+            results.failed.push({ name: entry.name, error: 'An interrupted plugin update could not be recovered. Its backup is preserved.' });
+            continue;
+        }
 
         if (isIncompleteUpload(pluginDir)) {
             results.failed.push({ name: entry.name, error: 'Incomplete uploaded installation is disabled; remove it before trying again.' });
@@ -220,7 +286,11 @@ function loadPlugins(registrar) {
                 continue;
             }
 
-            registerPluginModules(pluginDir, manifest, registrar);
+            const registered = registerPluginModules(pluginDir, manifest, registrar);
+            registered.ready.catch(() => {
+                if (loadedPlugins.get(manifest.name) === registered) unloadPlugin(manifest.name, registrar);
+                console.error(`[PLUGINS] Startup failed for ${manifest.name}.`);
+            });
             results.loaded.push(manifest.name);
             console.log(`[PLUGINS] Loaded: ${manifest.name} v${manifest.version}`);
 
@@ -276,7 +346,7 @@ function getInstalledPluginManifests() {
 
         try {
             const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-            const validation = validateManifest(manifest, pluginDir);
+            const validation = validateManifest(manifest, pluginDir, { checkCompatibility: false });
             if (!validation.valid) continue;
 
             installed.set(manifest.name, {
@@ -319,7 +389,7 @@ function rebuildPluginMap() {
     const entries = fs.readdirSync(PLUGINS_DIR, { withFileTypes: true });
 
     for (const entry of entries) {
-        if (!entry.isDirectory()) continue;
+        if (!entry.isDirectory() || entry.name === '.updates' || hasPendingPluginUpdate(PLUGINS_DIR, entry.name)) continue;
 
         const pluginDir = path.join(PLUGINS_DIR, entry.name);
         if (isIncompleteUpload(pluginDir)) continue;

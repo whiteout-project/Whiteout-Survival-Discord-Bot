@@ -104,6 +104,7 @@ class PlayerDataProcessor {
                     failed: (processData.progress.failed || []).length,
                     existing: (processData.progress.existing || []).length,
                     lastUpdate: Date.now(),
+                    profileDeferred: processData.progress.profile_deferred?.length || 0,
                     embedMessage: null
                 });
             }
@@ -274,13 +275,19 @@ class PlayerDataProcessor {
                         await this.movePlayerToStatus(processId, playerId, 'pending', 'existing');
                         processingState.existing++;
                     } else {
-                        await this.addPlayerToDatabase(
+                        const enrichment = await this.addPlayerToDatabase(
                             playerId,
                             alliance.id,
                             alliance.state,
                             processData.created_by,
                             gameType
                         );
+                        if (enrichment?.deferred) {
+                            const latest = await getProcessById(processId);
+                            latest.progress.profile_deferred = [...(latest.progress.profile_deferred || []), String(playerId)];
+                            processingState.profileDeferred = latest.progress.profile_deferred.length;
+                            await updateProcessProgress(processId, latest.progress);
+                        }
                         await this.movePlayerToStatus(processId, playerId, 'pending', 'done');
                         processingState.added++;
                     }
@@ -326,7 +333,11 @@ class PlayerDataProcessor {
                 String(addedBy),
                 gameType
             );
-
+            const integration = require('./playerSyncIntegration').getPlayerSyncIntegration();
+            if (integration) {
+                try { return await integration.enrichPlayer({ fid: String(playerId), gameType, allianceId }); }
+                catch { return { deferred: true }; }
+            }
         } catch (error) {
             await handleError(null, null, error, 'addPlayerToDatabase', false);
             throw error;
@@ -667,6 +678,12 @@ class PlayerDataProcessor {
                 }
             ])
             .setTimestamp();
+
+        const deferred = this.processing.get(processData.id)?.profileDeferred || processResult.progress?.profile_deferred?.length || 0;
+        if (deferred) embed.addFields({
+            name: lang.plugins?.['player-sync']?.title || 'Player Sync',
+            value: (lang.plugins?.['player-sync']?.deferredNotice || 'Profile lookup deferred for {count} player(s). Their IDs were added successfully.').replace('{count}', deferred)
+        });
 
         return embed;
     }

@@ -25,7 +25,8 @@ const { normalizeGameType } = require('../utility/gameProfiles');
 const PROCESS_PRIORITIES = {
     ADD_PLAYER: 100000,
     REDEEM_GIFTCODE: 200000,
-    STATE_SEARCH: 300000
+    STATE_SEARCH: 300000,
+    PLAYER_SYNC: 400000
 };
 
 /**
@@ -92,6 +93,11 @@ function resolveProcessGameType(processData) {
  * @returns {Promise<Object>} Process creation result
  */
 async function createProcess(processData) {
+    return createProcessRecord(processData);
+}
+
+// Synchronous form lets optional integrations atomically attach their own job records.
+function createProcessRecord(processData) {
     try {
         const { admin_id, alliance_id, player_ids, action } = processData;
 
@@ -118,6 +124,9 @@ async function createProcess(processData) {
                 break;
             case 'state_search':
                 basePriority = PROCESS_PRIORITIES.STATE_SEARCH;
+                break;
+            case 'player_sync':
+                basePriority = PROCESS_PRIORITIES.PLAYER_SYNC;
                 break;
             default:
                 throw new Error(`Unsupported process action: ${action}`);
@@ -523,6 +532,7 @@ function resetCrashedProcesses() {
 
 module.exports = {
     createProcess,
+    createProcessRecord,
     getProcessById,
     resolveProcessGameType,
     updateProcessStatus,
