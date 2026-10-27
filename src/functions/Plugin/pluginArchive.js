@@ -269,10 +269,16 @@ async function inspectInWorker(buffer, options) {
     let worker;
     let timeout;
     try {
-        // Keep security/runtime flags, but let the worker use its own smaller V8 heap.
-        const memoryFlag = /^--max[-_]old[-_]space[-_]size(?:=|$)/;
-        const execArgv = process.execArgv.filter((arg, i, args) => !memoryFlag.test(arg) &&
-            !/^--expose[-_]gc(?:=|$)/.test(arg) && !(i > 0 && /^--max[-_]old[-_]space[-_]size$/.test(args[i - 1])));
+        // Forward policies and preloads, not process/V8 flags rejected by newer workers.
+        const workerFlag = /^(?:--(?:(?:experimental-)?permission(?:-audit)?|allow-[\w-]+|(?:experimental-)?policy|policy-integrity|frozen-intrinsics|disable-proto|no-addons|require|import|conditions|no-warnings|no-deprecation|trace-warnings|enable-source-maps)(?:=|$)|-[rC]$)/;
+        const execArgv = [];
+        for (let i = 0; i < process.execArgv.length; i++) {
+            const arg = process.execArgv[i];
+            if (!workerFlag.test(arg)) continue;
+            execArgv.push(arg);
+            if (!arg.includes('=') && process.execArgv[i + 1] && !process.execArgv[i + 1].startsWith('-'))
+                execArgv.push(process.execArgv[++i]);
+        }
         worker = new Worker(__filename, { execArgv,
             workerData: { pluginInspection: true, buffer, options: { ...options, workspace } },
             resourceLimits: { maxOldGenerationSizeMb: 64, maxYoungGenerationSizeMb: 16, stackSizeMb: 2 } });
@@ -369,7 +375,10 @@ function installUploadedPlugin(inspection, registrar, client) {
     try {
         const marker = { source: 'third-party', status: 'pending', archiveSha256: inspection.digest };
         fs.writeFileSync(path.join(dest, MARKER), JSON.stringify(marker), { flag: 'wx' });
-        fs.cpSync(path.join(inspection.workDir, 'payload'), dest, { recursive: true, force: false, errorOnExist: true });
+        // The destination already holds our marker; Node 24 rejects copying onto that directory.
+        const payload = path.join(inspection.workDir, 'payload');
+        for (const name of fs.readdirSync(payload))
+            fs.cpSync(path.join(payload, name), path.join(dest, name), { recursive: true, force: false, errorOnExist: true });
         const guardedRegistrar = {
             ...registrar,
             registerCommand: file => {

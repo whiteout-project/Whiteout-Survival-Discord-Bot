@@ -2,7 +2,7 @@ const readline = require('readline');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
-const { spawn, execSync } = require('child_process');
+const { spawn, spawnSync, execSync } = require('child_process');
 
 function getBootstrapRuntimeDefaults(argv = process.argv.slice(2)) {
     const typeArg = argv.find(arg => arg.startsWith('--type='));
@@ -238,16 +238,16 @@ if (!process.env.STARTER_CHILD) {
 // NODE VERSION CHECK  (must pass before anything else runs)
 // ============================================================
 
-const ALLOWED_NODE_MAJORS = [18, 20, 22];
+const ALLOWED_NODE_MAJORS = [18, 20, 22, 24];
 const _currentNodeMajor = parseInt(process.versions.node.split('.')[0], 10);
 if (!ALLOWED_NODE_MAJORS.includes(_currentNodeMajor)) {
     console.error(`
 ❌  Unsupported Node.js version: v${process.versions.node}`);
-    console.error(`   This bot requires Node.js 18, 20, or 22 (LTS releases).`);
+    console.error(`   This bot supports Node.js 18, 20, 22, and 24.`);
     console.error(`   Other versions may lack prebuilt binaries for better-sqlite3`);
     console.error(`   and may OOM or fail`);
     console.error(`   to compile on memory-constrained containers.`);
-    console.error(`   Please switch to Node 18, 20, or 22 and restart.\n`);
+    console.error(`   Please use an up-to-date Node 22 or 24 release and restart.\n`);
     process.exit(1);
 }
 
@@ -264,35 +264,18 @@ let lastGitHubFallbackAttemptAt = 0;
 let lastGitHubFallbackResult = null;
 
 /**
- * Recursively searches a directory for any .node native addon file.
- * @param {string} dir
- * @returns {boolean}
- */
-function hasNodeFile(dir) {
-    try {
-        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-            if (entry.isFile() && entry.name.endsWith('.node')) return true;
-            if (entry.isDirectory() && hasNodeFile(path.join(dir, entry.name))) return true;
-        }
-    } catch { /* ignore permission / missing dir */ }
-    return false;
-}
-
-/**
- * Returns true when native addon binaries are in place for the packages
- * that require them (specifically better-sqlite3).
- *
- * Called after `checkDependencies` confirms all package directories exist so
- * the bot does not start up with unbuilt native modules after a partial install
- * that was killed before `npm rebuild` ran.
+ * Checks SQLite in a separate process without opening stored bot data.
+ * A binary can exist but use the wrong ABI after changing Node versions.
  *
  * @param {string} cwd - Project root
  * @returns {boolean}
  */
 function areNativeBinariesPresent(cwd) {
     const bsqlite = path.join(cwd, 'node_modules', 'better-sqlite3');
-    if (!fs.existsSync(bsqlite)) return true; // package not installed, nothing to check
-    return ['build', 'compiled', 'addon-build'].some(d => hasNodeFile(path.join(bsqlite, d)));
+    if (!fs.existsSync(bsqlite)) return false;
+    const probe = spawnSync(process.execPath, ['-e', 'const db = new (require("better-sqlite3"))(":memory:"); db.close();'],
+        { cwd, stdio: 'ignore', timeout: 15000 });
+    return !probe.error && probe.status === 0;
 }
 
 /**
@@ -321,16 +304,24 @@ async function checkDependencies() {
             missing.push(depName);
         }
     }
+    if (missing.length === 0) {
+        const semver = require('semver');
+        for (const [depName, range] of Object.entries(deps)) {
+            try {
+                const installed = JSON.parse(fs.readFileSync(path.join(nodeModulesDir, depName, 'package.json'), 'utf8'));
+                if (!semver.satisfies(installed.version, range)) missing.push(depName);
+            } catch { missing.push(depName); }
+        }
+    }
 
     const needsInstall = missing.length > 0;
-    // Also check native binaries: packages may be present (dirs exist) but binaries
-    // missing when a previous install was killed before Phase 2 (npm rebuild) ran.
+    // Detect interrupted builds and binaries left over from another Node runtime.
     const needsRebuild = !needsInstall && !areNativeBinariesPresent(__dirname);
 
     if (needsInstall) {
-        console.log(`[PREFLIGHT] Missing dependencies: ${missing.join(', ')}`);
+        console.log(`[PREFLIGHT] Missing or outdated dependencies: ${missing.join(', ')}`);
     } else if (needsRebuild) {
-        console.log('[PREFLIGHT] Packages present but native binaries missing. Running npm rebuild...');
+        console.log('[PREFLIGHT] Native binaries are missing or incompatible. Running npm rebuild...');
     }
 
     if (needsInstall) {
@@ -358,7 +349,7 @@ async function checkDependencies() {
         }
     }
 
-    return true;
+    return areNativeBinariesPresent(__dirname);
 }
 
 /**
@@ -992,17 +983,15 @@ async function applyUpdate() {
 // ============================================================
 
 /**
- * Warns if the running Node.js version is known to break native modules.
- * better-sqlite3 fails to compile on Node 25+ due to V8 API changes.
- * Recommended: Node 18, 20, or 22 LTS.
+ * Checks the same runtime support list used before installation.
  */
 function checkNodeVersion() {
     const [major] = process.versions.node.split('.').map(Number);
-    if (major >= 23) {
+    if (!ALLOWED_NODE_MAJORS.includes(major)) {
         console.warn('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
         console.warn(`[WARNING] Node.js v${process.versions.node} detected.`);
-        console.warn('[WARNING] Node 23+ breaks better-sqlite3 native compilation.');
-        console.warn('[WARNING] Recommended: Node 18, 20, or 22 LTS.');
+        console.warn('[WARNING] This Node.js release has not been verified with the bot.');
+        console.warn('[WARNING] Recommended: an up-to-date Node 22 or 24 release.');
         console.warn('[WARNING] Install via: https://nodejs.org or nvm');
         console.warn('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
         return false;
@@ -1295,7 +1284,7 @@ function ensureNpmrc(cwd) {
 async function checkDepsInstalled(cwd, env) {
     try {
         await spawnCapture('npm', ['ls', '--depth=0', '--prefer-offline', '--no-audit'], { cwd, env });
-        return true;
+        return areNativeBinariesPresent(cwd);
     } catch {
         return false;
     }

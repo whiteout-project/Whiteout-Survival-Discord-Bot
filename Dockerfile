@@ -1,5 +1,7 @@
+ARG NODE_VERSION=22
+
 # Stage 1: Build native dependencies
-FROM node:22-slim AS builder
+FROM node:${NODE_VERSION}-slim AS builder
 
 WORKDIR /app
 
@@ -17,7 +19,7 @@ COPY package.json package-lock.json ./
 RUN npm ci
 
 # Stage 2: Production image
-FROM node:22-slim
+FROM node:${NODE_VERSION}-slim
 
 WORKDIR /app
 

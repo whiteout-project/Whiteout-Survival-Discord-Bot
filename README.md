@@ -34,17 +34,19 @@ A powerful Discord bot for managing Whiteout Survival and Kingshot game data, al
 
 ### Prerequisites
 
-- **Node.js**: Versions 18.x, 20.x, and 22.x are the only supported versions ([Install from here](https://nodejs.org/en/download))
+- **Node.js**: Use an up-to-date 22.x or 24.x release ([Install from here](https://nodejs.org/en/download)). Compatibility is retained for 18.17+ and 20.x, but those Node releases are end-of-life. Player Sync requires Node 22+.
 - A **Discord Bot Token** ([Create one here](https://discord.com/developers/applications))
+
+SQLite may need a local build on Node 24. Install Python 3 and C++ build tools (`python3`, `make`, and a recent `g++` on Linux; Visual Studio 2022 Build Tools with C++ on Windows). The Docker build includes these tools.
 
 ### One-Click Install
 
-Only Node.js is required. Download or place `starter.js` in an empty folder and run it — the script will download the repository, install dependencies, and start the bot for you.
+Install Node.js and the build tools above if needed. Download or place `starter.js` in an empty folder and run it — the script will download the repository, install dependencies, and start the bot for you.
 
 Steps:
 
 ```bash
-# Ensure Node.js (v18+) is installed
+# Install an up-to-date Node.js 22 or 24 release
 # Place starter.js in an empty directory and run:
 node starter.js
 
@@ -81,6 +83,8 @@ node starter.js --type=both
 ```
 
 On first run, the bot will prompt you to enter your Discord bot token. It will be saved to `src/.env` automatically.
+
+The launcher repairs missing or incompatible SQLite binaries after a Node upgrade and installs changed dependencies when updating the bot. Keep your database and backups; changing Node versions does not require resetting bot data. For manual installations, run `npm install` after updating and `npm rebuild better-sqlite3` after changing Node major versions.
 
 ---
 
@@ -175,6 +179,8 @@ Runtime args available from the launcher:
 ## Hosting Options
 
 **This is a self-hosted bot!** That means you will need to run the bot somewhere. You could do this on your own PC if you like, but it will stop running if you shut the PC down. Luckily there are some other hosting options available which you can find on [our Discord server](https://discord.gg/apYByj6K2m) under the `#host-setup` channel, many of which are free.
+
+The Dockerfile defaults to Node 22. To build it with Node 24, use `docker build --build-arg NODE_VERSION=24 -t wosland-bot .`; native dependencies are built with the same Node version as the final image.
 
 We have a list of known working VPS providers below that you could also check out. **Please note that the bot developers are not affiliated with any of these hosting providers (except ikketim) and we do not provider support if your hosting provider has issues.**
 

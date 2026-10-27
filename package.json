@@ -1,19 +1,22 @@
 {
   "name": "wosland-bot",
-  "version": "1.0.53",
+  "version": "1.0.54",
   "description": "whiteout survival discord bot",
   "main": "src/index.js",
+  "engines": {
+    "node": "^18.17.0 || ^20.0.0 || ^22.0.0 || ^24.0.0"
+  },
   "scripts": {
     "start": "node --expose-gc --max-old-space-size=256 starter.js",
     "start:basic": "node starter.js",
     "dev": "node --expose-gc --max-old-space-size=256 starter.js",
-    "test": "node --test test/giftCodeAndAutoSort.test.js"
+    "test": "node tests/run.cjs"
   },
   "dependencies": {
     "7zip-bin": "^5.2.0",
     "adm-zip": "^0.5.16",
     "ascii85": "^1.0.2",
-    "better-sqlite3": "^9.2.2",
+    "better-sqlite3": "~11.10.0",
     "discord.js": "^14.25.1",
     "dotenv": "^16.3.1",
     "googleapis": "^134.0.0",
@@ -25,7 +28,7 @@
     "semver": "^7.7.2"
   },
   "allowScripts": {
-    "better-sqlite3@9.6.0": true
+    "better-sqlite3@11.10.0": true
   },
   "keywords": [
     "discord",
