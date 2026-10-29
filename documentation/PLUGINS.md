@@ -625,8 +625,18 @@ existing plugin, verifies downloaded identity/version and available checksums, a
 bounds official ZIP extraction. An update saves replaceable code in
 `plugins/.updates/{name}/`; dependency changes retain the previous `node_modules`.
 Copy, dependency or registration failures restore the old files and reload the
-previous plugin. Interrupted updates are recovered before startup loading; an
-unrecoverable transaction remains disabled with its backup preserved. Databases,
+previous plugin. Interrupted updates are restored before startup loading. If local
+restoration fails, startup tries a checksum-verified official repair up to three
+times before Discord login, so repaired commands join normal registration. The
+attempt count is stored with the interrupted transaction and survives restarts.
+The shared update lock excludes concurrent plugin/core changes. Uploaded plugins
+are never repaired through the official catalog. An unrecoverable transaction
+remains disabled, and the owner can retry through Plugins → Install → Repair.
+Repairs retain the original transaction until loading succeeds, then archive it
+under `plugins/.updates/.preserved-*`. Failed repairs retain their blocker and
+backups. Terminal records are retired before deleting backups, so partial cleanup
+cannot make an already committed/restored plugin appear interrupted. Version-only
+changes in package/lock metadata reuse installed dependencies. Databases,
 environment files, Git metadata and declared persistent paths remain in place.
 This restores files and registrations, not arbitrary data changes made by plugin
 code or npm scripts. Official plugins are trusted executable code.

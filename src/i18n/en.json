@@ -1912,6 +1912,9 @@
             "available": "**Available Plugins**",
             "noAvailable": "No additional plugins available.",
             "installing": "Installing **{name}**...",
+            "repairing": "Repairing **{name}**... Your data and previous backup will be kept.",
+            "repairSuccess": "{emoji.1004} **{name}** repaired and loaded! The bot is restarting to register its commands.",
+            "repairFailed": "{emoji.1050} Couldn't repair **{name}**: {error}",
             "removing": "Removing **{name}**...",
             "installSuccess": "{emoji.1004} **{name}** installed! The bot is restarting to register its slash commands...",
             "installFailed": "{emoji.1050} Couldn't install **{name}**: {error}",
@@ -1922,6 +1925,7 @@
         },
         "buttons": {
             "install": "Install",
+            "repair": "Repair",
             "remove": "Remove",
             "back": "Back",
             "backToInstall": "Back to Install",

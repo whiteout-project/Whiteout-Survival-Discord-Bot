@@ -18,7 +18,8 @@ const { createPluginsComponents } = require('./plugins');
 const { getComponentEmoji, getEmojiMapForUser } = require('../utility/emojis');
 const { createUniversalPaginationButtons } = require('../Pagination/universalPagination');
 const { isGitMetadataPath } = require('./pluginGitMetadata');
-const { isProtectedPluginPath, beginPluginUpdate } = require('./pluginUpdateTransaction');
+const { isProtectedPluginPath, beginPluginUpdate, hasPendingPluginUpdate, claimPluginRecoveryAttempt } = require('./pluginUpdateTransaction');
+const { dependencyFingerprint } = require('./pluginDependencies');
 const semver = require('semver');
 const {
     PLUGINS_DIR, loadedPlugins, validateManifest, registerPluginModules, getPluginPreserveConfig, getInstalledPluginManifests
@@ -48,25 +49,43 @@ const MAX_REDIRECTS = 5;
  */
 function httpsGetJSON(url, remainingRedirects = MAX_REDIRECTS, headers = {}) {
     return new Promise((resolve) => {
-        const req = https.get(url, {
+        let target;
+        try {
+            target = new URL(url);
+            if (target.protocol !== 'https:' || target.username || target.password) return resolve(null);
+        } catch { return resolve(null); }
+        const req = https.get(target, {
             headers: {
                 'User-Agent': 'WhiteoutSurvivalBot',
                 ...headers
             }
         }, (res) => {
-            if ((res.statusCode === 301 || res.statusCode === 302) && remainingRedirects > 0) {
-                return httpsGetJSON(res.headers.location, remainingRedirects - 1, headers).then(resolve);
+            if ([301, 302, 303, 307, 308].includes(res.statusCode) && remainingRedirects > 0) {
+                res.resume();
+                let next;
+                try { next = new URL(res.headers.location, target).href; }
+                catch { return resolve(null); }
+                return httpsGetJSON(next, remainingRedirects - 1, headers).then(resolve, () => resolve(null));
             }
-            if (res.statusCode !== 200) return resolve(null);
+            if (res.statusCode !== 200) { res.resume(); return resolve(null); }
 
             let body = '';
-            res.on('data', chunk => body += chunk);
+            let bytes = 0;
+            res.on('error', () => resolve(null));
+            res.on('aborted', () => resolve(null));
+            res.on('data', chunk => {
+                bytes += chunk.length;
+                if (bytes > 2 * 1024 * 1024) { req.destroy(); resolve(null); }
+                else body += chunk;
+            });
             res.on('end', () => {
                 try { resolve(JSON.parse(body)); } catch { resolve(null); }
             });
         });
         req.on('error', () => resolve(null));
         req.setTimeout(10000, () => { req.destroy(); resolve(null); });
+        const deadline = setTimeout(() => { req.destroy(); resolve(null); }, 10000);
+        req.on('close', () => clearTimeout(deadline));
     });
 }
 
@@ -306,7 +325,7 @@ function installPluginDependencies(pluginName, pluginDir) {
 
     console.log(`[PLUGINS] Installing dependencies for ${pluginName}...`);
     try {
-        execSync('npm install --omit=optional --production', { cwd: pluginDir, stdio: 'pipe' });
+        execSync('npm install --omit=optional --production', { cwd: pluginDir, stdio: 'pipe', timeout: 180000 });
     } catch (error) {
         throw new Error(`Dependency installation failed for ${pluginName}.`);
     }
@@ -538,11 +557,15 @@ function compareVersions(a, b) {
 
 const ITEMS_PER_PAGE = 5;
 
-/**
- * Builds the install section container with paginated plugin sections
- * @param {Object} params
- * @returns {Array} Array of components for the section
- */
+function isPendingOfficialRepair(name) {
+    if (!/^[a-zA-Z0-9_-]{1,64}$/.test(name)) return false;
+    const dir = path.join(PLUGINS_DIR, name);
+    return fs.existsSync(dir) && !fs.lstatSync(dir).isSymbolicLink() && fs.lstatSync(dir).isDirectory() &&
+        !fs.existsSync(path.join(dir, '.wosland-upload.json')) &&
+        !fs.existsSync(path.join(dir, '.wosland-install-pending.json')) && hasPendingPluginUpdate(PLUGINS_DIR, name);
+}
+
+/** Builds the install section with paginated official plugins and interrupted-update repairs. */
 function buildInstallSection({ userId, pluginLang, lang, available, registryError, page }) {
     const totalPages = Math.max(1, Math.ceil(available.length / ITEMS_PER_PAGE));
     const currentPage = Math.min(page, totalPages - 1);
@@ -579,7 +602,7 @@ function buildInstallSection({ userId, pluginLang, lang, available, registryErro
                 : '';
             const installButton = new ButtonBuilder()
                 .setCustomId(`plugins_install_${plugin.name}_${userId}`)
-                .setLabel(pluginLang.buttons.install)
+                .setLabel(isPendingOfficialRepair(plugin.name) ? pluginLang.buttons.repair : pluginLang.buttons.install)
                 .setStyle(ButtonStyle.Success)
                 .setDisabled(!compatible)
                 .setEmoji(getComponentEmoji(emojiMap, '1004'));
@@ -648,7 +671,6 @@ async function handlePluginsInstallMenu(interaction, page = 0) {
 
         const pluginLang = lang.plugins;
         const userId = interaction.user.id;
-
         // Fetch installed and registry
         const installed = getInstalledPluginManifests();
 
@@ -660,7 +682,7 @@ async function handlePluginsInstallMenu(interaction, page = 0) {
         if (!registry) registryError = true;
 
         const installedNames = new Set(installed.map(p => p.name));
-        const available = registry?.plugins?.filter(p => !installedNames.has(p.name) && validateManifest(p, 'registry', { checkCompatibility: false }).valid) || [];
+        const available = registry?.plugins?.filter(p => (!installedNames.has(p.name) || isPendingOfficialRepair(p.name)) && validateManifest(p, 'registry', { checkCompatibility: false }).valid) || [];
 
         const sectionComponents = buildInstallSection({
             userId, pluginLang, lang, available, registryError, page
@@ -716,7 +738,7 @@ async function handlePluginsInstallPagination(interaction) {
         if (!registry) registryError = true;
 
         const installedNames = new Set(installed.map(p => p.name));
-        const available = registry?.plugins?.filter(p => !installedNames.has(p.name)) || [];
+        const available = registry?.plugins?.filter(p => (!installedNames.has(p.name) || isPendingOfficialRepair(p.name)) && validateManifest(p, 'registry', { checkCompatibility: false }).valid) || [];
 
         const newPage = direction === 'next' ? currentPage + 1 : currentPage - 1;
 
@@ -762,6 +784,7 @@ async function handlePluginInstall(interaction) {
 
         const pluginLang = lang.plugins;
         const userId = interaction.user.id;
+        const repairing = isPendingOfficialRepair(pluginName);
         updateLock = acquireUpdateLock(`plugin install: ${pluginName}`);
         if (!updateLock.acquired) {
             return await interaction.reply({
@@ -777,7 +800,7 @@ async function handlePluginInstall(interaction) {
             .setAccentColor(0xffa500)
             .addTextDisplayComponents(
                 new TextDisplayBuilder().setContent(
-                    pluginLang.content.installing.replace('{name}', pluginName)
+                    (repairing ? pluginLang.content.repairing : pluginLang.content.installing).replace('{name}', pluginName)
                 )
             );
 
@@ -792,8 +815,8 @@ async function handlePluginInstall(interaction) {
         const result = await global.pluginManager.install(pluginName);
 
         const resultText = result.success
-            ? pluginLang.content.installSuccess.replace('{name}', pluginName)
-            : pluginLang.content.installFailed
+            ? (repairing ? pluginLang.content.repairSuccess : pluginLang.content.installSuccess).replace('{name}', pluginName)
+            : (repairing ? pluginLang.content.repairFailed : pluginLang.content.installFailed)
                 .replace('{name}', pluginName)
                 .replace('{error}', result.message);
         const color = result.success ? 0x2ecc71 : 0xff0000;
@@ -863,6 +886,7 @@ async function installPlugin(pluginName, registrar, options = {}) {
         }
 
         const destDir = path.join(PLUGINS_DIR, pluginName);
+        if (isPendingOfficialRepair(pluginName)) return await updatePlugin(pluginName, registrar, { repair: true });
         if (fs.existsSync(destDir)) {
             return {
                 success: false,
@@ -1003,7 +1027,7 @@ async function checkPluginUpdates() {
  * @param {Object} registrar - Register/unregister functions
  * @returns {Promise<{ success: boolean, message: string }>}
  */
-async function updatePlugin(pluginName, registrar) {
+async function updatePlugin(pluginName, registrar, { repair = false } = {}) {
     const { unloadPlugin } = require('./pluginDelete');
 
     const pluginDir = path.join(PLUGINS_DIR, pluginName);
@@ -1013,6 +1037,7 @@ async function updatePlugin(pluginName, registrar) {
     let transaction;
     let wasLoaded = false;
     let installedManifest;
+    let stage = 'validation';
 
     try {
         if (!/^[a-zA-Z0-9_-]+$/.test(pluginName)) {
@@ -1044,6 +1069,8 @@ async function updatePlugin(pluginName, registrar) {
         if (!entry) {
             return { success: false, message: `Plugin "${pluginName}" not found in registry.` };
         }
+        if (repair && (!isPendingOfficialRepair(pluginName) || !/^[a-f0-9]{64}$/i.test(entry.sha256 || '')))
+            return { success: false, message: 'Repair requires an interrupted official installation and a verified release checksum.' };
         const compatibility = validateManifest(entry, 'registry');
         if (!compatibility.valid) return { success: false, message: compatibility.error };
 
@@ -1054,48 +1081,59 @@ async function updatePlugin(pluginName, registrar) {
                 message: `Plugin "${pluginName}" is missing a release download URL from the central proxy.`
             };
         }
+        stage = 'download';
         const archive = await downloadAndExtractPluginArchive(pluginName, downloadUrl, entry);
         zipPath = archive.zipPath;
         extractDir = archive.extractDir;
 
+        stage = 'validation';
         const downloadedManifest = validateDownloadedPlugin(archive.pluginRoot, entry);
 
-        installedManifest = JSON.parse(fs.readFileSync(pluginManifestPath, 'utf8'));
+        if (fs.lstatSync(pluginDir).isSymbolicLink()) throw new Error('Installed plugin must not be a link.');
+        try { installedManifest = JSON.parse(fs.readFileSync(pluginManifestPath, 'utf8')); }
+        catch (error) {
+            if (!repair || !isPendingOfficialRepair(pluginName)) throw error;
+            installedManifest = downloadedManifest;
+        }
         if (installedManifest.name !== pluginName)
             throw new Error('Installed plugin identity does not match its folder.');
         if (semver.lt(downloadedManifest.version, installedManifest.version))
             throw new Error('Refusing to downgrade an installed plugin.');
 
-        const preserveConfig = resolveUpdatePreserveConfig(installedManifest, downloadedManifest);
+        const preserveConfig = repair
+            ? mergePreserveConfigs(getPluginPreserveConfig(installedManifest), getPluginPreserveConfig(downloadedManifest))
+            : resolveUpdatePreserveConfig(installedManifest, downloadedManifest);
 
-        const oldPackageHash = getFileHash(path.join(pluginDir, 'package.json'));
-        const newPackageHash = getFileHash(path.join(archive.pluginRoot, 'package.json'));
         const shouldInstallDependencies =
-            !!newPackageHash &&
-            (oldPackageHash !== newPackageHash ||
-                getFileHash(path.join(pluginDir, 'package-lock.json')) !==
-                    getFileHash(path.join(archive.pluginRoot, 'package-lock.json')) ||
+            fs.existsSync(path.join(archive.pluginRoot, 'package.json')) &&
+            (repair || dependencyFingerprint(pluginDir) !== dependencyFingerprint(archive.pluginRoot) ||
                 !fs.existsSync(path.join(pluginDir, 'node_modules')));
 
-        transaction = beginPluginUpdate(PLUGINS_DIR, pluginName, preserveConfig);
+        // The official archive has already passed integrity and compatibility checks.
+        stage = 'backup';
+        transaction = beginPluginUpdate(PLUGINS_DIR, pluginName, preserveConfig, { repair });
         wasLoaded = loadedPlugins.has(pluginName);
         unloadPlugin(pluginName, registrar);
         transaction.apply();
 
+        stage = 'file replacement';
         const copyStats = copyUpdatedPluginFiles(archive.pluginRoot, pluginDir, preserveConfig);
         const removeStats = removeStalePluginFiles(pluginDir, archive.pluginRoot, preserveConfig);
         if (copyStats.failed || removeStats.failed) throw new Error('Could not replace all plugin files.');
 
         if (shouldInstallDependencies) {
+            stage = 'dependencies';
             transaction.replaceDependencies();
             installPluginDependencies(pluginName, pluginDir);
         }
 
         const finalManifest = validateDownloadedPlugin(pluginDir, entry);
 
+        stage = 'startup';
         loadedPlugins.delete(pluginName);
         await waitForPluginReady(registerPluginModules(pluginDir, finalManifest, registrar));
-        transaction.commit();
+        stage = 'commit';
+        transaction.commit({ keepBackup: repair });
         transaction = null;
         console.log(`[PLUGINS] Updated: ${finalManifest.name} v${finalManifest.version}`);
 
@@ -1110,6 +1148,7 @@ async function updatePlugin(pluginName, registrar) {
             message: `Plugin "${finalManifest.name}" v${finalManifest.version} updated successfully. ${summary.join(', ')}.`
         };
     } catch (error) {
+        if (repair) console.warn(`[PLUGINS] Repair for ${pluginName} failed during ${stage} (${error.code || 'FAILED'}).`);
         if (transaction) {
             unloadPlugin(pluginName, registrar);
             try {
@@ -1130,12 +1169,54 @@ async function updatePlugin(pluginName, registrar) {
                         'Plugin update failed. Its previous files were restored, but the previous plugin could not be loaded. Restart the bot after checking the plugin.'
                 };
             }
-            return { success: false, message: `Update failed; previous plugin restored: ${error.message}` };
+            return { success: false, message: repair
+                ? 'Repair failed. The plugin remains disabled and its backups are preserved. Try Repair again after checking file access and the bot configuration.'
+                : `Update failed; previous plugin restored: ${error.message}` };
         }
-        return { success: false, message: `Update failed: ${error.message}` };
+        return { success: false, message: repair
+            ? 'Repair could not finish. The plugin remains disabled and its backup is preserved. Check the bot console for the failed step.'
+            : `Update failed: ${error.message}` };
     } finally {
         cleanupTempPaths(extractDir, zipPath);
     }
+}
+
+/** Retry interrupted official updates before Discord registers plugin commands. */
+async function recoverPendingPlugins(registrar) {
+    const results = { recovered: [], failed: [] };
+    if (!fs.existsSync(PLUGINS_DIR)) return results;
+    const pending = fs.readdirSync(PLUGINS_DIR, { withFileTypes: true })
+        .filter(entry => entry.isDirectory() && isPendingOfficialRepair(entry.name)).map(entry => entry.name);
+    if (!pending.length) return results;
+    const lock = acquireUpdateLock('automatic plugin recovery');
+    if (!lock.acquired) return results;
+    try {
+        for (const name of pending) {
+            try {
+                while (isPendingOfficialRepair(name)) {
+                    const attempt = claimPluginRecoveryAttempt(PLUGINS_DIR, name);
+                    if (attempt === null) break;
+                    console.log(`[PLUGINS] Recovering ${name} (attempt ${attempt}/3).`);
+                    if (attempt > 1) await new Promise(resolve => setTimeout(resolve, attempt === 2 ? 1000 : 3000));
+                    const result = await updatePlugin(name, registrar, { repair: true });
+                    if (result.success) {
+                        results.recovered.push(name);
+                        break;
+                    }
+                }
+                if (!results.recovered.includes(name)) {
+                    results.failed.push(name);
+                    console.warn(`[PLUGINS] Automatic recovery for ${name} did not complete. Backups are preserved. Use Plugins → Install → Repair.`);
+                }
+            } catch (error) {
+                results.failed.push(name);
+                console.warn(`[PLUGINS] Automatic recovery for ${name} stopped (${error.code || 'RECOVERY_FAILED'}). Backups are preserved. Use Plugins → Install → Repair.`);
+            }
+        }
+    } finally {
+        releaseUpdateLock(lock.token);
+    }
+    return results;
 }
 
 module.exports = {
@@ -1143,6 +1224,7 @@ module.exports = {
     installPlugin,
     checkPluginUpdates,
     updatePlugin,
+    recoverPendingPlugins,
     handlePluginsInstallMenu,
     handlePluginsInstallPagination,
     handlePluginInstall

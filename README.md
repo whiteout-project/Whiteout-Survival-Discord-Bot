@@ -86,6 +86,8 @@ On first run, the bot will prompt you to enter your Discord bot token. It will b
 
 The launcher repairs missing or incompatible SQLite binaries after a Node upgrade and installs changed dependencies when updating the bot. Keep your database and backups; changing Node versions does not require resetting bot data. For manual installations, run `npm install` after updating and `npm rebuild better-sqlite3` after changing Node major versions.
 
+At startup, interrupted plugin updates are restored from their local backup first. If an official plugin still needs recovery, the bot tries to repair it from a verified release up to three times before signing in to Discord. The retry count survives restarts. Plugin databases, environment files, Git metadata and declared local configuration are preserved. If recovery cannot finish, the bot continues with the other plugins; the owner can retry through **Plugins → Install → Repair**. Recovery backups are kept in `plugins/.updates`.
+
 ---
 
 

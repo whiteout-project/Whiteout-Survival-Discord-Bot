@@ -31,15 +31,20 @@ function transactionPath(pluginsDir, name) {
 
 function writeRecord(dir, record) {
     const file = path.join(dir, 'transaction.json');
+    for (const target of [file, `${file}.tmp`]) {
+        if (fs.existsSync(target) && fs.lstatSync(target).isSymbolicLink()) throw new Error('Plugin recovery record must not be a link.');
+    }
     fs.writeFileSync(`${file}.tmp`, JSON.stringify(record));
     fs.renameSync(`${file}.tmp`, file);
 }
 
 function readRecord(dir, name) {
+    if (fs.lstatSync(path.join(dir, 'transaction.json')).isSymbolicLink()) throw new Error('Plugin recovery record must not be a link.');
     const record = JSON.parse(fs.readFileSync(path.join(dir, 'transaction.json'), 'utf8'));
     if (
         record.name !== name ||
-        !['prepared', 'applying', 'committed'].includes(record.phase) ||
+        !['prepared', 'applying', 'committed', 'restored'].includes(record.phase) ||
+        typeof record.dependencies !== 'boolean' || typeof record.hadNodeModules !== 'boolean' ||
         !record.preserve ||
         ['dirs', 'files', 'extensions'].some(
             key => !Array.isArray(record.preserve[key]) || record.preserve[key].some(value => typeof value !== 'string')
@@ -52,6 +57,25 @@ function readRecord(dir, name) {
 
 function configFromRecord(record) {
     return Object.fromEntries(Object.entries(record.preserve).map(([key, values]) => [key, new Set(values)]));
+}
+
+// Keep ambiguous backups outside the active transaction slot; never execute their contents.
+function preservePendingPluginUpdate(pluginsDir, name) {
+    const dir = transactionPath(pluginsDir, name);
+    if (!fs.existsSync(dir)) return null;
+    const saved = path.join(path.dirname(dir), `.preserved-${name}-${require('crypto').randomBytes(8).toString('hex')}`);
+    fs.renameSync(dir, saved);
+    return saved;
+}
+
+function finishUpdate(pluginsDir, name, keepBackup = false, dir = transactionPath(pluginsDir, name)) {
+    try {
+        const saved = path.join(path.dirname(dir), `.preserved-${name}-${require('crypto').randomBytes(8).toString('hex')}`);
+        fs.renameSync(dir, saved);
+        if (saved && !keepBackup) fs.rmSync(saved, { recursive: true, force: true });
+    } catch (error) {
+        console.warn(`[PLUGINS] Completed update backup for ${name} was kept (${error.code || 'CLEANUP_FAILED'}).`);
+    }
 }
 
 // Snapshot only replaceable code. Databases, local configuration and Git metadata stay in place.
@@ -81,13 +105,19 @@ function removeCode(dir, preserveConfig, base = dir) {
     }
 }
 
-function beginPluginUpdate(pluginsDir, name, preserveConfig) {
-    const dir = transactionPath(pluginsDir, name);
-    if (fs.existsSync(dir)) throw new Error('A previous plugin update must be recovered first.');
+function beginPluginUpdate(pluginsDir, name, preserveConfig, { repair = false } = {}) {
+    const pending = transactionPath(pluginsDir, name);
+    if (!repair && fs.existsSync(pending) && !hasPendingPluginUpdate(pluginsDir, name))
+        restorePluginUpdate(pluginsDir, name);
+    if (!repair && fs.existsSync(pending)) throw new Error('A previous plugin update must be recovered first.');
+    if (repair && !fs.existsSync(pending)) throw new Error('The interrupted plugin update no longer exists.');
+    // A repair never vacates the original blocker until the replacement has loaded successfully.
+    const dir = repair ? path.join(path.dirname(pending), `.repair-${name}-${require('crypto').randomBytes(8).toString('hex')}`) : pending;
     const pluginDir = path.join(pluginsDir, name);
     if (!fs.lstatSync(pluginDir).isDirectory() || fs.lstatSync(pluginDir).isSymbolicLink())
         throw new Error('Installed plugin must be a real directory.');
-    fs.mkdirSync(dir, { recursive: true });
+    fs.mkdirSync(path.dirname(dir), { recursive: true });
+    const staging = fs.mkdtempSync(path.join(path.dirname(dir), `.preparing-${name}-`));
     const record = {
         name,
         phase: 'prepared',
@@ -96,10 +126,12 @@ function beginPluginUpdate(pluginsDir, name, preserveConfig) {
         preserve: Object.fromEntries(Object.entries(preserveConfig).map(([key, values]) => [key, [...values]]))
     };
     try {
-        copyCode(pluginDir, path.join(dir, 'code'), preserveConfig);
-        writeRecord(dir, record);
+        copyCode(pluginDir, path.join(staging, 'code'), preserveConfig);
+        writeRecord(staging, record);
+        if (fs.existsSync(dir)) throw new Error('A previous plugin update must be recovered first.');
+        fs.renameSync(staging, dir);
     } catch (error) {
-        fs.rmSync(dir, { recursive: true, force: true });
+        try { fs.rmSync(staging, { recursive: true, force: true }); } catch { /* The untouched plugin remains usable. */ }
         throw error;
     }
     return {
@@ -114,30 +146,32 @@ function beginPluginUpdate(pluginsDir, name, preserveConfig) {
             if (fs.existsSync(modules)) fs.renameSync(modules, path.join(dir, 'node_modules'));
         },
         rollback() {
-            restorePluginUpdate(pluginsDir, name);
+            restorePluginUpdate(pluginsDir, name, dir, repair);
         },
-        commit() {
+        commit({ keepBackup = false } = {}) {
+            if (repair) {
+                // This atomic rename is the commit point; subsequent cleanup must not roll it back.
+                preservePendingPluginUpdate(pluginsDir, name);
+                finishUpdate(pluginsDir, name, true, dir);
+                return;
+            }
             record.phase = 'committed';
             writeRecord(dir, record);
-            // Failure to delete an old backup must not undo a successfully loaded update.
-            try {
-                fs.rmSync(dir, { recursive: true, force: true });
-            } catch {
-                console.warn(`[PLUGINS] Update backup for ${name} will be cleaned on restart.`);
-            }
+            finishUpdate(pluginsDir, name, keepBackup);
         }
     };
 }
 
-function restorePluginUpdate(pluginsDir, name) {
-    const dir = transactionPath(pluginsDir, name);
+function restorePluginUpdate(pluginsDir, name, dir = transactionPath(pluginsDir, name), keepBackup = false) {
     const record = readRecord(dir, name);
     if (record.phase === 'applying') {
         const pluginDir = path.join(pluginsDir, name);
         if (fs.lstatSync(pluginDir).isSymbolicLink()) throw new Error('Cannot recover a linked plugin directory.');
         const config = configFromRecord(record);
         const backup = path.join(dir, 'code');
+        if (fs.lstatSync(backup).isSymbolicLink()) throw new Error('Cannot recover a linked backup.');
         if (!fs.existsSync(path.join(backup, 'plugin.json'))) throw new Error('Plugin update backup is incomplete.');
+        validateBackup(backup);
         removeCode(pluginDir, config);
         copyCode(backup, pluginDir, config);
         if (record.dependencies) {
@@ -148,8 +182,35 @@ function restorePluginUpdate(pluginsDir, name) {
                 if (fs.existsSync(saved)) fs.renameSync(saved, modules);
             }
         }
+        record.phase = 'restored';
+        writeRecord(dir, record);
     }
-    fs.rmSync(dir, { recursive: true, force: true });
+    finishUpdate(pluginsDir, name, keepBackup, dir);
+}
+
+function validateBackup(dir) {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        if (entry.isSymbolicLink() || (!entry.isDirectory() && !entry.isFile())) throw new Error('Invalid plugin backup file.');
+        if (entry.isDirectory()) validateBackup(path.join(dir, entry.name));
+    }
+}
+
+// The counter lives with the interrupted update, so a restart cannot reset the retry budget.
+function claimPluginRecoveryAttempt(pluginsDir, name) {
+    const dir = transactionPath(pluginsDir, name);
+    const file = path.join(dir, 'recovery.json');
+    let attempts = 0;
+    if (fs.existsSync(file)) {
+        if (fs.lstatSync(file).isSymbolicLink()) throw new Error('Plugin recovery counter must not be a link.');
+        attempts = JSON.parse(fs.readFileSync(file, 'utf8')).attempts;
+        if (!Number.isInteger(attempts) || attempts < 0 || attempts > 3) throw new Error('Invalid plugin recovery counter.');
+    }
+    if (attempts === 3) return null;
+    const temp = `${file}.tmp`;
+    if (fs.existsSync(temp) && fs.lstatSync(temp).isSymbolicLink()) throw new Error('Plugin recovery counter must not be a link.');
+    fs.writeFileSync(temp, JSON.stringify({ attempts: attempts + 1 }));
+    fs.renameSync(temp, file);
+    return attempts + 1;
 }
 
 function recoverPluginUpdates(pluginsDir) {
@@ -160,11 +221,13 @@ function recoverPluginUpdates(pluginsDir) {
         return;
     }
     for (const entry of fs.readdirSync(updates, { withFileTypes: true })) {
-        if (!entry.isDirectory()) continue;
+        if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
         try {
             restorePluginUpdate(pluginsDir, entry.name);
-        } catch {
-            console.warn(`[PLUGINS] Could not recover update for ${entry.name}; its backup is preserved.`);
+        } catch (error) {
+            const file = typeof error.path === 'string' && path.resolve(error.path).startsWith(path.resolve(pluginsDir) + path.sep)
+                ? ` ${path.relative(pluginsDir, error.path).replace(/[\r\n]/g, ' ').slice(0, 180)}` : '';
+            console.warn(`[PLUGINS] Could not restore update for ${entry.name} (${error.code || 'INVALID_RECORD'}${file}); backup preserved for recovery.`);
         }
     }
 }
@@ -172,10 +235,10 @@ function recoverPluginUpdates(pluginsDir) {
 function hasPendingPluginUpdate(pluginsDir, name) {
     try {
         const dir = transactionPath(pluginsDir, name);
-        return fs.existsSync(dir) && readRecord(dir, name).phase !== 'committed';
+        return fs.existsSync(dir) && !['committed', 'restored'].includes(readRecord(dir, name).phase);
     } catch {
         return true;
     }
 }
 
-module.exports = { isProtectedPluginPath, beginPluginUpdate, recoverPluginUpdates, hasPendingPluginUpdate };
+module.exports = { isProtectedPluginPath, beginPluginUpdate, recoverPluginUpdates, hasPendingPluginUpdate, claimPluginRecoveryAttempt };

@@ -168,7 +168,7 @@ function loadCoreModules() {
     loadModules(commandsDir, registerCommand, 'command');
 }
 
-function loadPluginsAndManager() {
+async function loadPluginsAndManager() {
     const pluginsLoader = require('./functions/Plugin/pluginsLoader');
     const pluginInstallModule = require('./functions/Plugin/pluginInstall');
     const pluginDeleteModule = require('./functions/Plugin/pluginDelete');
@@ -178,12 +178,6 @@ function loadPluginsAndManager() {
         registerHandler, unregisterHandler
     };
     const pluginResults = pluginsLoader.loadPlugins(pluginRegistrar);
-    if (pluginResults.failed.length > 0) {
-        for (const fail of pluginResults.failed) {
-            console.error(`[PLUGINS] ${fail.name}: ${fail.error}`);
-        }
-    }
-
     global.pluginManager = {
         fetchRegistry: () => pluginInstallModule.fetchRegistry(),
         getInstalled: () => pluginsLoader.getInstalledPlugins(),
@@ -194,6 +188,15 @@ function loadPluginsAndManager() {
         checkUpdates: () => pluginInstallModule.checkPluginUpdates(),
         update: (name) => pluginInstallModule.updatePlugin(name, pluginRegistrar)
     };
+    // Recover before login so repaired slash commands join the normal registration.
+    try {
+        await pluginInstallModule.recoverPendingPlugins(pluginRegistrar);
+    } catch {
+        console.warn('[PLUGINS] Automatic recovery could not finish. The bot will continue with available plugins.');
+    }
+    for (const fail of pluginResults.failed) {
+        if (!pluginsLoader.loadedPlugins.has(fail.name)) console.error(`[PLUGINS] ${fail.name}: ${fail.error}`);
+    }
 }
 
 function createQuestionPrompt() {
@@ -256,7 +259,7 @@ async function promptAndLogin(question) {
 async function ensureTokenAndLogin() {
     const question = createQuestionPrompt();
     loadCoreModules();
-    loadPluginsAndManager();
+    await loadPluginsAndManager();
     await promptAndLogin(question);
 }
 
