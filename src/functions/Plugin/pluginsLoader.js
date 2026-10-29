@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const semver = require('semver');
 const i18n = require('../../i18n');
-const { recoverPluginUpdates, hasPendingPluginUpdate } = require('./pluginUpdateTransaction');
+const { recoverPluginUpdates, hasPendingPluginUpdate, hasIncompleteOfficialInstall } = require('./pluginUpdateTransaction');
 
 // ============================================================
 // PLUGIN SYSTEM — Core loader, validation, and shared state
@@ -224,11 +224,15 @@ function unloadPlugin(pluginName, registrar) {
     return true;
 }
 
-function isIncompleteUpload(pluginDir) {
-    if (fs.existsSync(path.join(pluginDir, '.wosland-install-pending.json'))) return true;
-    const marker = path.join(pluginDir, '.wosland-upload.json');
-    if (!fs.existsSync(marker)) return false;
-    try { return JSON.parse(fs.readFileSync(marker, 'utf8')).status !== 'installed'; } catch { return true; }
+function isIncompleteInstall(pluginDir) {
+    try {
+        if (fs.lstatSync(path.join(pluginDir, '.wosland-install-pending.json'), { throwIfNoEntry: false })) return true;
+        const marker = path.join(pluginDir, '.wosland-upload.json');
+        const stat = fs.lstatSync(marker, { throwIfNoEntry: false });
+        if (!stat) return false;
+        if (!stat.isFile() || stat.isSymbolicLink()) return true;
+        return JSON.parse(fs.readFileSync(marker, 'utf8')).status !== 'installed';
+    } catch { return true; }
 }
 
 // ============================================================
@@ -263,8 +267,11 @@ function loadPlugins(registrar) {
             continue;
         }
 
-        if (isIncompleteUpload(pluginDir)) {
-            results.failed.push({ name: entry.name, error: 'Incomplete uploaded installation is disabled; remove it before trying again.' });
+        if (isIncompleteInstall(pluginDir)) {
+            const uploaded = !hasIncompleteOfficialInstall(PLUGINS_DIR, entry.name);
+            results.failed.push({ name: entry.name, error: uploaded
+                ? 'Incomplete third-party installation is disabled; review its files before trying again.'
+                : 'Incomplete official installation is disabled. Use Plugins → Install → Repair if automatic recovery cannot finish.' });
             continue;
         }
 
@@ -392,7 +399,7 @@ function rebuildPluginMap() {
         if (!entry.isDirectory() || entry.name === '.updates' || hasPendingPluginUpdate(PLUGINS_DIR, entry.name)) continue;
 
         const pluginDir = path.join(PLUGINS_DIR, entry.name);
-        if (isIncompleteUpload(pluginDir)) continue;
+        if (isIncompleteInstall(pluginDir)) continue;
         const manifestPath = path.join(pluginDir, 'plugin.json');
         if (!fs.existsSync(manifestPath)) continue;
 

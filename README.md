@@ -86,7 +86,7 @@ On first run, the bot will prompt you to enter your Discord bot token. It will b
 
 The launcher repairs missing or incompatible SQLite binaries after a Node upgrade and installs changed dependencies when updating the bot. Keep your database and backups; changing Node versions does not require resetting bot data. For manual installations, run `npm install` after updating and `npm rebuild better-sqlite3` after changing Node major versions.
 
-At startup, interrupted plugin updates are restored from their local backup first. If an official plugin still needs recovery, the bot tries to repair it from a verified release up to three times before signing in to Discord. The retry count survives restarts. Plugin databases, environment files, Git metadata and declared local configuration are preserved. If recovery cannot finish, the bot continues with the other plugins; the owner can retry through **Plugins → Install → Repair**. Recovery backups are kept in `plugins/.updates`.
+At startup, interrupted plugin updates are restored from their local backup first. If an official plugin still needs recovery, including an unfinished installation, the bot tries to repair it from a verified release up to three times before signing in to Discord. The retry count survives restarts. Plugin databases, environment files, Git metadata and declared local configuration are preserved. If recovery cannot finish, the bot continues with the other plugins; the owner can retry through **Plugins → Install → Repair**. Recovery backups are kept in `plugins/.updates`. Uploaded third-party plugins stay disabled if their installation is incomplete; they are never automatically replaced with a catalog plugin.
 
 ---
 
@@ -150,6 +150,10 @@ WEB_PANEL_CLIENT_SECRET=your_discord_application_client_secret
 ```
 
 Set the Discord application's OAuth2 redirect URI to `https://panel.example.com/auth/callback`. Reverse proxy the domain to the web panel's local port (default `3010`), preserving the `Host` header and HTTPS forwarding. If you use `WEB_PANEL_BASE_PATH`, include that path in `PUBLIC_URL` and the redirect URI. Keep the client secret private. Run `/webpanel` to get your panel URL.
+
+### Admin alliance assignments
+
+In the web panel, open **Manage Admins**, expand an admin, choose their **Assigned Alliances**, then click **Save Alliances**. Owners and Full Access admins can assign alliances to admins without Full Access. Adding/removing admins and changing their permissions remain owner-only. In dual-game mode, the selector includes both WOS and Kingshot; assignments for disabled games are preserved.
 
 ### Slash Commands
 

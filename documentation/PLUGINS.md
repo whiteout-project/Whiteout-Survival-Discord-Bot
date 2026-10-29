@@ -620,6 +620,45 @@ come from matching GitHub release assets, not a registry-supplied external URL.
 Changed archive contents require a plugin version bump; downgrades are rejected.
 The packager bounds archive and extracted sizes to the official installer's limits.
 
+#### Plugin release notes
+
+Write Markdown notes separately for each plugin version:
+
+```text
+backpack/releases/plugins/<plugin-id>/v<version>/release_en.md
+backpack/releases/plugins/<plugin-id>/v<version>/release_fr.md
+```
+
+The normal publisher command includes these files automatically. `--message` is
+still the Git commit message. Use `--notes-dir <directory>` to change the notes
+root, or `node publish-plugins.js --dry-run` to validate local notes and archives
+without publishing. Dry runs do not check remote versions or previously published
+notes.
+
+Notes are optional. When supplied, English is required; French is optional and
+falls back to English. Each file must be nonempty UTF-8 Markdown, at most 64 KiB,
+with no symbolic links. Use the same headings and lists as core release notes.
+Previously published notes cannot change without a plugin version bump. The
+publisher retains notes for unchanged plugins from the published repository's
+`release-notes/` directory, so a bundle containing several plugins preserves each
+plugin's own version history.
+
+The release includes separately named language assets and their size/checksum in
+the registry. Its GitHub description contains the English notes, with long
+descriptions shortened while the full files remain attached. Owner update DMs
+show notes in the owner's language using the core's Components V2 renderer;
+Settings → Update also links to each plugin's localized notes. Long DMs are split
+within Discord limits, with a link to the complete release. Missing or unavailable
+notes leave the normal version notice working.
+Downloads accept only HTTPS GitHub asset destinations, with bounded redirects,
+response sizes and deadlines. The proxy checks the registry asset's release path
+before downloading it and keeps its previous catalog if validation fails.
+
+Publish the updated core and deploy the central proxy before relying on note
+delivery. Older clients and proxies can continue installing plugin bundles but
+will show their existing version-only notices. Release notes live outside plugin
+archives and do not change plugin configuration or persistent data.
+
 The core checks declared bot/Node requirements before installation or unloading an
 existing plugin, verifies downloaded identity/version and available checksums, and
 bounds official ZIP extraction. An update saves replaceable code in
@@ -629,8 +668,16 @@ previous plugin. Interrupted updates are restored before startup loading. If loc
 restoration fails, startup tries a checksum-verified official repair up to three
 times before Discord login, so repaired commands join normal registration. The
 attempt count is stored with the interrupted transaction and survives restarts.
+The same repair covers `.wosland-install-pending.json` left by an unfinished
+official installation, including one without a manifest yet. Its first attempt
+creates an `incomplete` recovery record and retains the original marker. That
+record cannot be restored as a working installation. The marker stays protected
+during copying and rollback and is removed only after the verified plugin is ready.
+Only internal repair snapshots may restore a pre-existing tree without a manifest;
+the original incomplete-install/update blocker remains active on failure.
 The shared update lock excludes concurrent plugin/core changes. Uploaded plugins
-are never repaired through the official catalog. An unrecoverable transaction
+are never repaired through the official catalog. Linked or unreadable installation
+markers keep the plugin disabled, including broken links. An unrecoverable transaction
 remains disabled, and the owner can retry through Plugins → Install → Repair.
 Repairs retain the original transaction until loading succeeds, then archive it
 under `plugins/.updates/.preserved-*`. Failed repairs retain their blocker and

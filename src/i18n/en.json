@@ -2035,6 +2035,7 @@
                 "title": "\n**Plugin Updates Available:**\n",
                 "item": "- **{name}**: v{current} → v{latest}\n",
                 "button": "Update {name}",
+                "releaseNotes": "Release Notes",
                 "updating": "Updating plugin **{name}**..."
             },
             "buttons": {

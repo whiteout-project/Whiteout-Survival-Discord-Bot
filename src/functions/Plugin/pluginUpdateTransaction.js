@@ -43,7 +43,7 @@ function readRecord(dir, name) {
     const record = JSON.parse(fs.readFileSync(path.join(dir, 'transaction.json'), 'utf8'));
     if (
         record.name !== name ||
-        !['prepared', 'applying', 'committed', 'restored'].includes(record.phase) ||
+        !['incomplete', 'prepared', 'applying', 'committed', 'restored'].includes(record.phase) ||
         typeof record.dependencies !== 'boolean' || typeof record.hadNodeModules !== 'boolean' ||
         !record.preserve ||
         ['dirs', 'files', 'extensions'].some(
@@ -57,6 +57,33 @@ function readRecord(dir, name) {
 
 function configFromRecord(record) {
     return Object.fromEntries(Object.entries(record.preserve).map(([key, values]) => [key, new Set(values)]));
+}
+
+function hasIncompleteOfficialInstall(pluginsDir, name) {
+    if (typeof name !== 'string' || !/^[a-zA-Z0-9_-]{1,64}$/.test(name)) return false;
+    const pluginDir = path.join(pluginsDir, name);
+    try {
+        const dir = fs.lstatSync(pluginDir);
+        if (!dir.isDirectory() || dir.isSymbolicLink()) return false;
+        // Uploaded plugins must never be promoted into trusted catalog installations.
+        if (fs.lstatSync(path.join(pluginDir, '.wosland-upload.json'), { throwIfNoEntry: false })) return false;
+        const marker = fs.lstatSync(path.join(pluginDir, '.wosland-install-pending.json'));
+        return marker.isFile() && !marker.isSymbolicLink();
+    } catch { return false; }
+}
+
+function ensureInstallRecovery(pluginsDir, name) {
+    const dir = transactionPath(pluginsDir, name);
+    if (!fs.existsSync(dir) && hasIncompleteOfficialInstall(pluginsDir, name)) {
+        fs.mkdirSync(dir, { recursive: true });
+        fs.copyFileSync(path.join(pluginsDir, name, '.wosland-install-pending.json'), path.join(dir, 'install-pending.json'));
+        writeRecord(dir, {
+            name, phase: 'incomplete', dependencies: false,
+            hadNodeModules: fs.existsSync(path.join(pluginsDir, name, 'node_modules')),
+            preserve: { dirs: [], files: [], extensions: [] }
+        });
+    }
+    return dir;
 }
 
 // Keep ambiguous backups outside the active transaction slot; never execute their contents.
@@ -106,7 +133,7 @@ function removeCode(dir, preserveConfig, base = dir) {
 }
 
 function beginPluginUpdate(pluginsDir, name, preserveConfig, { repair = false } = {}) {
-    const pending = transactionPath(pluginsDir, name);
+    const pending = repair ? ensureInstallRecovery(pluginsDir, name) : transactionPath(pluginsDir, name);
     if (!repair && fs.existsSync(pending) && !hasPendingPluginUpdate(pluginsDir, name))
         restorePluginUpdate(pluginsDir, name);
     if (!repair && fs.existsSync(pending)) throw new Error('A previous plugin update must be recovered first.');
@@ -150,6 +177,11 @@ function beginPluginUpdate(pluginsDir, name, preserveConfig, { repair = false } 
         },
         commit({ keepBackup = false } = {}) {
             if (repair) {
+                const marker = path.join(pluginDir, '.wosland-install-pending.json');
+                if (fs.existsSync(marker)) {
+                    if (!hasIncompleteOfficialInstall(pluginsDir, name)) throw new Error('Plugin installation marker changed.');
+                    fs.unlinkSync(marker);
+                }
                 // This atomic rename is the commit point; subsequent cleanup must not roll it back.
                 preservePendingPluginUpdate(pluginsDir, name);
                 finishUpdate(pluginsDir, name, true, dir);
@@ -162,15 +194,17 @@ function beginPluginUpdate(pluginsDir, name, preserveConfig, { repair = false } 
     };
 }
 
-function restorePluginUpdate(pluginsDir, name, dir = transactionPath(pluginsDir, name), keepBackup = false) {
+function restorePluginUpdate(pluginsDir, name, dir = transactionPath(pluginsDir, name), repairSnapshot = false) {
     const record = readRecord(dir, name);
+    // There is no complete previous installation to restore; only a verified repair can finish it.
+    if (record.phase === 'incomplete') return;
     if (record.phase === 'applying') {
         const pluginDir = path.join(pluginsDir, name);
         if (fs.lstatSync(pluginDir).isSymbolicLink()) throw new Error('Cannot recover a linked plugin directory.');
         const config = configFromRecord(record);
         const backup = path.join(dir, 'code');
         if (fs.lstatSync(backup).isSymbolicLink()) throw new Error('Cannot recover a linked backup.');
-        if (!fs.existsSync(path.join(backup, 'plugin.json'))) throw new Error('Plugin update backup is incomplete.');
+        if (!repairSnapshot && !fs.existsSync(path.join(backup, 'plugin.json'))) throw new Error('Plugin update backup is incomplete.');
         validateBackup(backup);
         removeCode(pluginDir, config);
         copyCode(backup, pluginDir, config);
@@ -185,7 +219,7 @@ function restorePluginUpdate(pluginsDir, name, dir = transactionPath(pluginsDir,
         record.phase = 'restored';
         writeRecord(dir, record);
     }
-    finishUpdate(pluginsDir, name, keepBackup, dir);
+    finishUpdate(pluginsDir, name, repairSnapshot, dir);
 }
 
 function validateBackup(dir) {
@@ -197,7 +231,7 @@ function validateBackup(dir) {
 
 // The counter lives with the interrupted update, so a restart cannot reset the retry budget.
 function claimPluginRecoveryAttempt(pluginsDir, name) {
-    const dir = transactionPath(pluginsDir, name);
+    const dir = ensureInstallRecovery(pluginsDir, name);
     const file = path.join(dir, 'recovery.json');
     let attempts = 0;
     if (fs.existsSync(file)) {
@@ -241,4 +275,4 @@ function hasPendingPluginUpdate(pluginsDir, name) {
     }
 }
 
-module.exports = { isProtectedPluginPath, beginPluginUpdate, recoverPluginUpdates, hasPendingPluginUpdate, claimPluginRecoveryAttempt };
+module.exports = { isProtectedPluginPath, beginPluginUpdate, recoverPluginUpdates, hasPendingPluginUpdate, claimPluginRecoveryAttempt, hasIncompleteOfficialInstall };

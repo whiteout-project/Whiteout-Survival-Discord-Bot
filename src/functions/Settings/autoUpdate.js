@@ -10,7 +10,8 @@ const {
     TextDisplayBuilder,
     SeparatorBuilder,
     SeparatorSpacingSize,
-    ActionRowBuilder
+    ActionRowBuilder,
+    escapeMarkdown
 } = require('discord.js');
 const { settingsQueries, adminQueries } = require('../utility/database');
 const { validateManifest } = require('../Plugin/pluginsLoader');
@@ -293,7 +294,7 @@ async function handleToggleAutoUpdate(interaction) {
  * @param {import('discord.js').ButtonInteraction} interaction 
  */
 async function handleAutoUpdateCheck(interaction) {
-    const { adminData, lang } = getUserInfo(interaction.user.id);
+    const { adminData, lang, userLang } = getUserInfo(interaction.user.id);
     try {
         // Extract user ID from custom ID: auto_update_check_userId
         const expectedUserId = interaction.customId.split('_')[3];
@@ -375,6 +376,9 @@ async function handleAutoUpdateCheck(interaction) {
                     .replace('{name}', pu.name)
                     .replace('{current}', pu.current)
                     .replace('{latest}', pu.latest);
+                const assets = getPluginReleaseAssets(pu);
+                const notes = assets.find(asset => asset.name === `release_${userLang}.md`) || assets.find(asset => asset.name === 'release_en.md');
+                if (notes) statusText += `  [${settingsLang.pluginUpdates.releaseNotes}](${notes.url})\n`;
             }
 
             // Add update buttons for each plugin (max 5 per row)
@@ -799,24 +803,68 @@ function findOwnerUserId() {
  * @param {string} url - The browser_download_url of the asset
  * @returns {Promise<string|null>} The text content, or null on failure
  */
-function downloadAssetContent(url) {
+function downloadAssetContent(url, expected = {}, remainingRedirects = 5) {
     const https = require('https');
     return new Promise((resolve) => {
-        const req = https.get(url, { headers: { 'User-Agent': 'WhiteoutSurvivalBot' } }, (res) => {
+        let deadline;
+        const finish = value => { clearTimeout(deadline); resolve(value); };
+        let target;
+        try {
+            target = new URL(url);
+            if (target.protocol !== 'https:' || target.username || target.password || target.port ||
+                !(target.hostname === 'github.com' || target.hostname.endsWith('.githubusercontent.com'))) return finish(null);
+        } catch { return finish(null); }
+        const req = https.get(target, { headers: { 'User-Agent': 'WhiteoutSurvivalBot' } }, (res) => {
+            res.on('error', () => finish(null));
+            res.on('aborted', () => finish(null));
             if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-                return downloadAssetContent(res.headers.location).then(resolve);
+                res.resume();
+                if (!remainingRedirects) return finish(null);
+                let next;
+                try { next = new URL(res.headers.location, target).href; } catch { return finish(null); }
+                return downloadAssetContent(next, expected, remainingRedirects - 1).then(finish, () => finish(null));
             }
             if (res.statusCode !== 200) {
                 res.resume();
-                return resolve(null);
+                return finish(null);
             }
-            let body = '';
-            res.on('data', chunk => body += chunk);
-            res.on('end', () => resolve(body.trim() || null));
+            const chunks = [];
+            let size = 0;
+            res.on('data', chunk => {
+                size += chunk.length;
+                if (size > Math.min(expected.size || 2 * 1024 * 1024, 2 * 1024 * 1024)) { finish(null); req.destroy(); }
+                else chunks.push(chunk);
+            });
+            res.on('end', () => {
+                const body = Buffer.concat(chunks);
+                if ((expected.size && body.length !== expected.size) ||
+                    (expected.sha256 && require('crypto').createHash('sha256').update(body).digest('hex') !== expected.sha256)) return finish(null);
+                finish(body.toString('utf8').trim() || null);
+            });
         });
-        req.on('error', () => resolve(null));
-        req.setTimeout(5000, () => { req.destroy(); resolve(null); });
+        req.on('error', () => finish(null));
+        req.setTimeout(5000, () => { finish(null); req.destroy(); });
+        deadline = setTimeout(() => { finish(null); req.destroy(); }, 10000);
     });
+}
+
+function getPluginReleaseAssets(update) {
+    if (!/^[a-zA-Z0-9_-]{1,64}$/.test(update?.name || '') || !/^\d+\.\d+\.\d+$/.test(update?.latest || '')) return [];
+    const assets = [];
+    for (const [language, note] of Object.entries(update.releaseNotes || {}).slice(0, 10)) {
+        if (!/^[a-z]{2}$/.test(language) || !note || typeof note.url !== 'string' || note.url.length > 2048 ||
+            !Number.isSafeInteger(note.size) || note.size < 1 || note.size > 64 * 1024 ||
+            !/^[a-f0-9]{64}$/.test(note.sha256 || '')) continue;
+        try {
+            const url = new URL(note.url);
+            const prefix = '/whiteout-project/wosJS-plugins/releases/download/';
+            const parts = url.pathname.slice(prefix.length).split('/');
+            if (url.origin !== 'https://github.com' || !url.pathname.startsWith(prefix) || parts.length !== 2 || !parts[0] ||
+                parts[1] !== `${update.name}-v${update.latest}-release_${language}.md` || url.username || url.password || url.search || url.hash) continue;
+            assets.push({ name: `release_${language}.md`, url: note.url, size: note.size, sha256: note.sha256 });
+        } catch { /* Missing or invalid notes do not block plugin updates. */ }
+    }
+    return assets;
 }
 
 function isValidHttpsImageUrl(value) {
@@ -945,12 +993,14 @@ async function resolveLocalizedReleaseBlocks(assets, languageCode, fallbackBody)
     let sourceText = fallbackBody || '';
 
     if (assets?.length) {
-        const assetPatterns = [`release_${languageCode}.md`, `release_${languageCode}.txt`];
-        const matchedAsset = assets.find(a => assetPatterns.includes(a.name.toLowerCase()));
-
-        if (matchedAsset?.url) {
-            const content = await downloadAssetContent(matchedAsset.url);
-            if (content) sourceText = content;
+        for (const language of [...new Set([languageCode, 'en'])]) {
+            const assetPatterns = [`release_${language}.md`, `release_${language}.txt`];
+            const matchedAsset = assets.find(a => assetPatterns.includes(a.name.toLowerCase()));
+            if (!matchedAsset?.url) continue;
+            try {
+                const content = await downloadAssetContent(matchedAsset.url, matchedAsset);
+                if (content) { sourceText = content; break; }
+            } catch { /* A failed notes download must not suppress an update notice. */ }
         }
     }
 
@@ -1076,10 +1126,8 @@ function buildReleaseDmContainer(message, {
             new TextDisplayBuilder().setContent(getReleaseContinuationHeading(languageCode))
         );
     } else {
-        container.addTextDisplayComponents(
-            new TextDisplayBuilder().setContent(titleText),
-            new TextDisplayBuilder().setContent(versionText)
-        );
+        container.addTextDisplayComponents(new TextDisplayBuilder().setContent(titleText));
+        if (versionText) container.addTextDisplayComponents(new TextDisplayBuilder().setContent(versionText));
     }
 
     if (message.blocks.length > 0) {
@@ -1204,7 +1252,7 @@ async function notifyOwnerOfPluginUpdates(client, updates, willAutoApply) {
 
     try {
         const owner = await client.users.fetch(ownerId);
-        const { lang } = getUserInfo(ownerId);
+        const { lang, userLang } = getUserInfo(ownerId);
         const emojiMap = getEmojiMapForUser(ownerId);
         const dmLang = lang.settings?.autoUpdate?.dm || {};
 
@@ -1212,19 +1260,26 @@ async function notifyOwnerOfPluginUpdates(client, updates, willAutoApply) {
         const subtext = willAutoApply ? (dmLang.pluginApplied || '') : (dmLang.pluginNotifyOnly || '');
         const itemTemplate = dmLang.pluginItem || '- **{name}**: v{current} → v{latest}';
 
-        const listText = updates
-            .map(u => itemTemplate.replace('{name}', u.name).replace('{current}', u.current).replace('{latest}', u.latest))
-            .join('\n');
-
-        const container = new ContainerBuilder()
-            .addTextDisplayComponents(new TextDisplayBuilder().setContent(replaceEmojiPlaceholders(title, emojiMap)))
-            .addTextDisplayComponents(new TextDisplayBuilder().setContent(listText));
-
-        if (subtext) {
-            container.addTextDisplayComponents(new TextDisplayBuilder().setContent(subtext));
+        const versionText = updates.map(update => itemTemplate
+            .replace('{name}', escapeMarkdown(update.name))
+            .replace('{current}', update.current)
+            .replace('{latest}', update.latest)).join('\n');
+        const blocks = [];
+        for (const update of updates) {
+            const notes = await resolveLocalizedReleaseBlocks(getPluginReleaseAssets(update), userLang, '');
+            if (notes.length) {
+                blocks.push({ type: 'text', text: `### ${escapeMarkdown(update.name)} v${update.latest}` });
+                blocks.push(...notes);
+            }
         }
-
-        await owner.send({ components: [container], flags: MessageFlags.IsComponentsV2 });
+        const titleText = replaceEmojiPlaceholders(title, emojiMap);
+        const subtextText = replaceEmojiPlaceholders(subtext, emojiMap);
+        const releaseUrl = 'https://github.com/whiteout-project/wosJS-plugins/releases';
+        const messages = buildReleaseDmMessages({ titleText, versionText, subtextText, blocks, languageCode: userLang, releaseUrl });
+        for (let index = 0; index < messages.length; index++) {
+            const container = buildReleaseDmContainer(messages[index], { titleText, versionText, subtextText, languageCode: userLang });
+            await owner.send({ components: [container], allowedMentions: { parse: [] }, flags: MessageFlags.IsComponentsV2 | (index ? MessageFlags.SuppressNotifications : 0) });
+        }
     } catch (error) {
         console.error('[AUTO-UPDATE] Failed to DM owner about plugin updates:', error.message);
     }

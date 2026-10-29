@@ -18,7 +18,7 @@ const { createPluginsComponents } = require('./plugins');
 const { getComponentEmoji, getEmojiMapForUser } = require('../utility/emojis');
 const { createUniversalPaginationButtons } = require('../Pagination/universalPagination');
 const { isGitMetadataPath } = require('./pluginGitMetadata');
-const { isProtectedPluginPath, beginPluginUpdate, hasPendingPluginUpdate, claimPluginRecoveryAttempt } = require('./pluginUpdateTransaction');
+const { isProtectedPluginPath, beginPluginUpdate, hasPendingPluginUpdate, claimPluginRecoveryAttempt, hasIncompleteOfficialInstall } = require('./pluginUpdateTransaction');
 const { dependencyFingerprint } = require('./pluginDependencies');
 const semver = require('semver');
 const {
@@ -561,8 +561,8 @@ function isPendingOfficialRepair(name) {
     if (!/^[a-zA-Z0-9_-]{1,64}$/.test(name)) return false;
     const dir = path.join(PLUGINS_DIR, name);
     return fs.existsSync(dir) && !fs.lstatSync(dir).isSymbolicLink() && fs.lstatSync(dir).isDirectory() &&
-        !fs.existsSync(path.join(dir, '.wosland-upload.json')) &&
-        !fs.existsSync(path.join(dir, '.wosland-install-pending.json')) && hasPendingPluginUpdate(PLUGINS_DIR, name);
+        !fs.lstatSync(path.join(dir, '.wosland-upload.json'), { throwIfNoEntry: false }) &&
+        (hasIncompleteOfficialInstall(PLUGINS_DIR, name) || hasPendingPluginUpdate(PLUGINS_DIR, name));
 }
 
 /** Builds the install section with paginated official plugins and interrupted-update repairs. */
@@ -962,10 +962,10 @@ async function installPlugin(pluginName, registrar, options = {}) {
     }
 }
 
-function validateDownloadedPlugin(pluginRoot, entry) {
+function validateDownloadedPlugin(pluginRoot, entry, { allowPendingInstall = false } = {}) {
     if (
         fs.existsSync(path.join(pluginRoot, '.wosland-upload.json')) ||
-        fs.existsSync(path.join(pluginRoot, '.wosland-install-pending.json'))
+        (!allowPendingInstall && fs.existsSync(path.join(pluginRoot, '.wosland-install-pending.json')))
     )
         throw new Error('Official archive contains an installation marker.');
     const manifest = JSON.parse(fs.readFileSync(path.join(pluginRoot, 'plugin.json'), 'utf8'));
@@ -1048,16 +1048,16 @@ async function updatePlugin(pluginName, registrar, { repair = false } = {}) {
             return { success: false, message: `Plugin "${pluginName}" is not installed.` };
         }
 
-        if (fs.existsSync(path.join(pluginDir, '.wosland-upload.json'))) {
+        if (fs.lstatSync(path.join(pluginDir, '.wosland-upload.json'), { throwIfNoEntry: false })) {
             return {
                 success: false,
                 message: 'Uploaded third-party plugins cannot be updated from the official catalog.'
             };
         }
-        if (fs.existsSync(path.join(pluginDir, '.wosland-install-pending.json')))
+        if (!repair && fs.existsSync(path.join(pluginDir, '.wosland-install-pending.json')))
             return {
                 success: false,
-                message: 'An incomplete installation must be removed before updating this plugin.'
+                message: 'This installation is incomplete. Use Plugins → Install → Repair.'
             };
 
         const registry = await fetchRegistry();
@@ -1103,6 +1103,8 @@ async function updatePlugin(pluginName, registrar, { repair = false } = {}) {
         const preserveConfig = repair
             ? mergePreserveConfigs(getPluginPreserveConfig(installedManifest), getPluginPreserveConfig(downloadedManifest))
             : resolveUpdatePreserveConfig(installedManifest, downloadedManifest);
+        // Keep the official install blocker through file replacement, startup and rollback.
+        if (repair) preserveConfig.files.add('.wosland-install-pending.json');
 
         const shouldInstallDependencies =
             fs.existsSync(path.join(archive.pluginRoot, 'package.json')) &&
@@ -1127,7 +1129,7 @@ async function updatePlugin(pluginName, registrar, { repair = false } = {}) {
             installPluginDependencies(pluginName, pluginDir);
         }
 
-        const finalManifest = validateDownloadedPlugin(pluginDir, entry);
+        const finalManifest = validateDownloadedPlugin(pluginDir, entry, { allowPendingInstall: repair });
 
         stage = 'startup';
         loadedPlugins.delete(pluginName);
