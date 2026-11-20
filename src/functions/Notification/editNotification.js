@@ -381,7 +381,7 @@ async function showNotificationEditPanel(interaction, notification, lang, update
 
         // Build notification embed
         let notificationEmbed = null;
-        if (notification.embed_toggle) {
+        if (notification.embed_toggle && hasSendableNotificationContent({ ...notification, message_content: null })) {
             notificationEmbed = new EmbedBuilder()
                 .setColor(notification.color || '#0099ff');
 
